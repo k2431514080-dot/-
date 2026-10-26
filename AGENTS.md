@@ -1,6 +1,6 @@
 # Codex Instructions
 
-This repository contains Codex skills for Office document work. When a user asks Codex to create, read, modify, polish, analyze, format, validate, or export Office files, use the matching skill under `.codex/skills/`.
+This repository contains Codex skills for Office document work and automation mechanism design. When a user asks Codex to create, read, modify, polish, analyze, format, validate, or export Office files, or to design, size, review, or document mechanisms for automation equipment, use the matching skill under `.codex/skills/`.
 
 ## Skill selection
 
@@ -18,6 +18,9 @@ Use these skills by file type and task:
 - `.codex/skills/office-report/SKILL.md`  
   Use together with docx/xlsx/pptx when the task is a Chinese engineering/business report, weekly report, cost analysis report, project closing report, supplier/customer communication document, or manager-facing summary.
 
+- `.codex/skills/automation-mechanism/SKILL.md`  
+  Use for non-standard automation equipment mechanism schemes (非标自动化机构方案): process/action decomposition, mechanism selection, cylinder/vacuum/ball-screw/belt/servo/rotary table/cam indexer/linear guide sizing, cycle time and UPH, risk review, scheme comparison, BOM/cost, and full-inspection/assembly/test machine proposals. Combine with docx/xlsx/pptx/office-report when the scheme must be delivered as an Office file.
+
 - `.codex/skills/office-documents/SKILL.md`  
   Legacy combined Office skill. Use only as a fallback if a task spans Word, Excel, and PowerPoint and no more specific skill is enough.
 
@@ -31,6 +34,12 @@ Use these skills by file type and task:
 6. For Excel: preserve raw data, preserve formulas unless asked to change them, check formula ranges, units, charts, and common formula errors.
 7. For PowerPoint: keep one slide focused on one idea, use consistent layout, and check text overflow/readability.
 8. For Chinese engineering/business reports: use concise, conclusion-first wording suitable for manager review.
+
+## Automation mechanism rules
+
+1. Size every load-bearing or cycle-critical component with `.codex/skills/automation-mechanism/scripts/mech_calc.py`; do not size by feel.
+2. Prove cycle time with `scripts/cycle_time.py` and keep at least 10% margin against the target UPH.
+3. State assumptions explicitly and separate confirmed data from estimates; script results are preliminary until checked against vendor catalogs.
 
 ## User style preference
 
