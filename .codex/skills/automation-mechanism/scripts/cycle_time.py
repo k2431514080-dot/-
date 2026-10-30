@@ -57,6 +57,11 @@ def fail(msg):
     sys.exit(f"错误: {msg}")
 
 
+def md(s):
+    """Markdown 表格单元格转义."""
+    return str(s).replace("|", "\\|").replace("\n", " ")
+
+
 def parse_seconds(text, where):
     t = text.strip().lower().replace(" ", "")
     m = re.match(r"^(\d+(?:\.\d+)?)(ms|s)?$", t)
@@ -369,21 +374,21 @@ def build_report(acts, order, r, a):
               "|---|---|---|---:|---:|---:|---:|:-:|---|"]
     for k in order:
         x = acts[k]
-        lines.append(f"| {k} | {x.station} | {x.action} | {x.dur:.2f} | {r['es'][k]:.2f} | "
+        lines.append(f"| {md(k)} | {md(x.station)} | {md(x.action)} | {x.dur:.2f} | {r['es'][k]:.2f} | "
                      f"{r['ef'][k]:.2f} | {r['slack'][k]:.2f} | {'★' if k in crit else ''} | "
-                     f"{x.resource} |")
+                     f"{md(x.resource)} |")
     lines.append("")
 
     lines += ["### 工位负荷", "", "| 工位 | 开始 s | 结束 s | 跨度 s | 动作占用 s | 占用率 |",
               "|---|---:|---:|---:|---:|---:|"]
     for s in r["stations"]:
-        lines.append(f"| {s['station']} | {s['start']:.2f} | {s['end']:.2f} | {s['span']:.2f} | "
+        lines.append(f"| {md(s['station'])} | {s['start']:.2f} | {s['end']:.2f} | {s['span']:.2f} | "
                      f"{s['busy']:.2f} | {s['util']:.0%} |")
     lines.append("")
     if r["res_busy"]:
         lines += ["### 执行机构负荷", "", "| 执行机构 | 动作时间合计 s | 占节拍 |", "|---|---:|---:|"]
         for res, busy in sorted(r["res_busy"].items(), key=lambda kv: -kv[1]):
-            lines.append(f"| {res} | {busy:.2f} | {busy / ct:.0%} |")
+            lines.append(f"| {md(res)} | {busy:.2f} | {busy / ct:.0%} |")
         lines.append("")
 
     lines += ["### 甘特图", "", "```text", ascii_gantt(acts, order, r), "```", ""]
@@ -433,6 +438,10 @@ def main(argv=None):
     ap.add_argument("--out", help="Markdown 报告写入文件 (UTF-8)")
     ap.add_argument("--json", action="store_true", help="输出 JSON")
     a = ap.parse_args(argv)
+    if not 0 < a.oee <= 1:
+        fail(f"--oee 应在 0~1 之间 (85% 写成 0.85), 当前 {a.oee:g}")
+    if a.pcs <= 0 or a.hours <= 0 or (a.target_uph is not None and a.target_uph <= 0):
+        fail("--pcs、--hours、--target-uph 须 > 0")
 
     acts, order = load(a.csv)
     r = analyze(acts, order, a.mode)

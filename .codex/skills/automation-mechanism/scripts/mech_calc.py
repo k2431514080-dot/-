@@ -11,6 +11,8 @@
   guide     直线导轨额定寿命
   move      单段点到点运动时间 (梯形/三角速度)
   safety    安全光栅安全距离 (ISO 13855 / GB/T 19876)
+  gripper   气爪夹持力
+  conveyor  皮带线驱动电机
 
 用法: python3 mech_calc.py <子命令> -h
 结果为方案阶段初选值, 定型前须用厂家样本复核。
@@ -665,6 +667,8 @@ def cmd_rotary(a):
     Tc = a.friction_torque + a.work_torque
     i = a.ratio
     eta = a.ratio_eff if i != 1 else 1.0
+    if a.cycle_time and a.cycle_time < t:
+        sys.exit("--cycle-time (整机节拍) 不能小于 --index-time (分度时间)")
     duty = math.sqrt(t / a.cycle_time) if a.cycle_time else 1.0
 
     def stats(ka, kc):
@@ -712,6 +716,8 @@ def cmd_indexer(a):
         T = 60 / a.input_rpm
     else:
         sys.exit("需给出 --cycle-time 或 --input-rpm")
+    if not 0 < a.index_angle < 360:
+        sys.exit("--index-angle (凸轮分度角) 须在 0~360° 之间, 常用 90~270")
     p = profile(a.profile)
     r.inp("分度数 S", S)
     r.inp("节拍 (输入轴一转)", T, "s")
@@ -743,7 +749,7 @@ def cmd_indexer(a):
     accuracy_checks(r, R, None, a.accuracy_arcsec)
 
     rows = []
-    for ang in (90, 120, 150, 180, 210, 240, 270):
+    for ang in sorted({90, 120, 150, 180, 210, 240, 270, int(a.index_angle)}):
         c = calc(ang)
         rows.append([ang, c[0], c[1], c[2], c[4], c[5]])
     r.table("分度角对比 (分度角越大越平稳, 但停留时间越短)",
@@ -838,6 +844,72 @@ def cmd_safety(a):
     return r
 
 
+def cmd_gripper(a):
+    r = Report("气爪夹持力选型")
+    sf = a.safety or (4.0 if a.mode == "friction" else 2.0)
+    W = a.mass * (G + a.accel)
+    r.inp("工件质量", a.mass, "kg")
+    r.inp("搬运加速度", a.accel, "m/s²")
+    r.inp("夹持方式", "摩擦夹持 (平面爪)" if a.mode == "friction" else "形状夹持 (仿形爪托住工件)")
+    r.inp("爪数", a.fingers)
+    if a.mode == "friction":
+        r.inp("爪与工件摩擦系数 μ", a.mu)
+    r.inp("安全系数", sf)
+    F = W / (a.fingers * a.mu) * sf if a.mode == "friction" else W / a.fingers * sf
+    r.res("每爪所需夹持力", F, "N")
+    r.res("夹持力 / 工件重量", F / (a.mass * G))
+    r.check("注意", f"按样本在实际供气压力和夹持点距离 L、外伸量 H 下选 每爪夹持力 ≥ {fmt(F)} N 的气爪, "
+                  "并核对允许外伸量和导轨允许力矩")
+    if a.mode == "friction":
+        r.note("摩擦夹持经验: 夹持力约为工件重量的 10~20 倍 (μ 0.1~0.2, 安全系数 4)")
+    r.note("断气时会掉件: 需要时选带弹簧保持或自锁的气爪; 易损/软件优先电爪或仿形爪降低夹持力")
+    return r
+
+
+GEAR_MOTORS = [6, 15, 25, 40, 60, 90, 120, 200, 400, 750, 1500]
+GEAR_RATIOS = [3, 3.6, 5, 6, 7.5, 9, 10, 12.5, 15, 18, 20, 25, 30, 36, 50, 60, 75, 90, 100, 120, 150, 180]
+
+
+def cmd_conveyor(a):
+    r = Report("皮带线驱动电机选型")
+    v = a.speed / 60
+    D = a.pulley_dia
+    th = math.radians(a.angle)
+    r.inp("输送物总质量 (同时在线)", a.load, "kg")
+    r.inp("皮带质量", a.belt_mass, "kg")
+    r.inp("带速", a.speed, "m/min")
+    r.inp("驱动滚筒直径", D, "mm")
+    r.inp("摩擦系数 μ", a.mu)
+    r.inp("倾角", a.angle, "°")
+    r.inp("传动效率", a.eff)
+    F = (a.load + a.belt_mass) * G * a.mu * math.cos(th) + a.load * G * math.sin(th)
+    F_acc = (a.load + a.belt_mass) * v / a.accel_time
+    T = F * D / 2000 / a.eff
+    T_start = (F + F_acc) * D / 2000 / a.eff
+    n = v / (math.pi * D / 1000) * 60
+    P = T * 2 * math.pi * n / 60
+    r.res("运行阻力", F, "N")
+    r.res("滚筒运行扭矩", T, "N·m")
+    r.res(f"滚筒启动扭矩 ({a.accel_time:g} s 加速)", T_start, "N·m")
+    r.res("滚筒转速", n, "rpm")
+    r.res("所需输出功率", P, "W")
+    need = max(P * a.sf, T_start * 2 * math.pi * n / 60)
+    motor = next((w for w in GEAR_MOTORS if w >= need), None)
+    ratio = a.motor_rpm / n
+    std = min(GEAR_RATIOS, key=lambda x: abs(x - ratio))
+    r.res("计算减速比", ratio)
+    r.res("推荐标准减速比", std)
+    r.res("减速比取整后带速", v * ratio / std * 60, "m/min")
+    if motor:
+        r.check("OK", f"初选 {motor} W 减速电机 (所需 {fmt(need)} W, 含安全系数 {a.sf:g}), 减速比 1:{std:g}")
+    else:
+        r.check("NG", "超出 1.5 kW, 按样本选型或分段输送")
+    r.note(f"电机转速按 {a.motor_rpm:g} rpm (4 极感应调速电机 50 Hz 典型值) 估算; 伺服/变频驱动按实际转速复核")
+    r.note("μ 经验值: 滑板支撑 0.3~0.5, 托辊支撑 0.03~0.05; 有阻挡积放时按阻挡处滑动摩擦另加阻力")
+    r.note("皮带质量 ≈ 单位长度质量 × 皮带总长 (约 2 × 输送长度), 未填时按 0 计算")
+    return r
+
+
 # ---------------------------------------------------------------- CLI
 
 def pos(text):
@@ -852,6 +924,21 @@ def pos_int(text):
     v = int(text)
     if v <= 0:
         raise argparse.ArgumentTypeError(f"须为正整数: {text}")
+    return v
+
+
+def vacuum_kpa(text):
+    """真空度: 接受 60 或 -60, 取绝对值, 须在 0~95 kPa."""
+    v = abs(float(text))
+    if not 0 < v <= 95:
+        raise argparse.ArgumentTypeError(f"真空度应在 -1 ~ -95 kPa: {text}")
+    return v
+
+
+def ratio01(text):
+    v = float(text)
+    if not 0 < v <= 1:
+        raise argparse.ArgumentTypeError(f"须在 0~1 之间 (如 0.5): {text}")
     return v
 
 def build_parser():
@@ -870,7 +957,7 @@ def build_parser():
     p.add_argument("--direction", choices=["push", "pull"], default="push", help="做功方向 (默认 push)")
     p.add_argument("--pressure", type=pos, default=0.4, help="设计压力 MPa (默认 0.4)")
     p.add_argument("--mu", type=float, default=0.2, help="水平摩擦系数 (默认 0.2; 直线导轨 0.01~0.05)")
-    p.add_argument("--load-ratio", type=float, help="负载率 η (默认按工况和速度自动取值)")
+    p.add_argument("--load-ratio", type=ratio01, help="负载率 η 0~1 (默认按工况和速度自动取值)")
     p.add_argument("--speed", type=pos, help="平均速度 mm/s")
     p.add_argument("--stroke", type=pos, help="行程 mm")
     p.add_argument("--cycles", type=float, help="往返次数 /min (用于耗气量)")
@@ -878,7 +965,7 @@ def build_parser():
 
     p = sub.add_parser("vacuum", parents=[common], help="真空吸盘选型")
     p.add_argument("--mass", type=pos, required=True, help="工件质量 kg")
-    p.add_argument("--vacuum", type=pos, default=60, help="真空度 kPa (按绝对值输入, 默认 60 即 -60 kPa)")
+    p.add_argument("--vacuum", type=vacuum_kpa, default=60, help="真空度 kPa (填 60 或 -60 均可, 默认 -60 kPa)")
     p.add_argument("--cups", type=pos_int, default=1, help="吸盘数量 (默认 1)")
     p.add_argument("--mode", choices=["horizontal", "vertical"], default="horizontal",
                    help="horizontal 水平吸吊 / vertical 侧吸 (默认 horizontal)")
@@ -971,6 +1058,29 @@ def build_parser():
     p.add_argument("--stop-ms", type=float, required=True, help="机器停止时间 ms (实测)")
     p.add_argument("--resolution", type=pos, required=True, help="光栅分辨率 mm (≤40)")
     p.set_defaults(func=cmd_safety)
+
+    p = sub.add_parser("gripper", parents=[common], help="气爪夹持力")
+    p.add_argument("--mass", type=pos, required=True, help="工件质量 kg")
+    p.add_argument("--accel", type=float, default=0.0, help="搬运加速度 m/s² (默认 0)")
+    p.add_argument("--mode", choices=["friction", "shape"], default="friction",
+                   help="friction 摩擦夹持 / shape 仿形爪托住 (默认 friction)")
+    p.add_argument("--fingers", type=pos_int, default=2, help="爪数 (默认 2)")
+    p.add_argument("--mu", type=pos, default=0.2, help="爪与工件摩擦系数 (默认 0.2; 光滑金属 0.1)")
+    p.add_argument("--safety", type=pos, help="安全系数 (默认 摩擦 4 / 仿形 2)")
+    p.set_defaults(func=cmd_gripper)
+
+    p = sub.add_parser("conveyor", parents=[common], help="皮带线驱动电机")
+    p.add_argument("--load", type=pos, required=True, help="同时在线的输送物总质量 kg (含治具/料盘)")
+    p.add_argument("--speed", type=pos, required=True, help="带速 m/min")
+    p.add_argument("--pulley-dia", type=pos, default=50, help="驱动滚筒直径 mm (默认 50)")
+    p.add_argument("--belt-mass", type=float, default=0.0, help="皮带质量 kg (默认 0)")
+    p.add_argument("--mu", type=pos, default=0.3, help="摩擦系数 (默认 0.3 滑板支撑; 托辊 0.05)")
+    p.add_argument("--angle", type=float, default=0.0, help="倾角 ° (默认 0)")
+    p.add_argument("--eff", type=ratio01, default=0.7, help="减速机+皮带传动效率 (默认 0.7)")
+    p.add_argument("--accel-time", type=pos, default=0.5, help="启动加速时间 s (默认 0.5)")
+    p.add_argument("--motor-rpm", type=pos, default=1300, help="电机转速 rpm (默认 1300)")
+    p.add_argument("--sf", type=pos, default=1.5, help="功率安全系数 (默认 1.5)")
+    p.set_defaults(func=cmd_conveyor)
     return ap
 
 

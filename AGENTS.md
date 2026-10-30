@@ -41,6 +41,7 @@ Use these skills by file type and task:
 2. Prove cycle time with `scripts/cycle_time.py` and keep at least 10% margin against the target UPH.
 3. Build 3D concept layouts with `scripts/layout3d.py` and fix every reported clash before delivering the HTML viewer and STEP file.
 4. State assumptions explicitly and separate confirmed data from estimates; script results are preliminary until checked against vendor catalogs.
+5. After changing any script under `.codex/skills/automation-mechanism/scripts/`, run `python3 .codex/skills/automation-mechanism/scripts/selftest.py`; all checks must pass.
 
 ## User style preference
 

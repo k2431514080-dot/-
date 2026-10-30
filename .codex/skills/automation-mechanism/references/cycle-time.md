@@ -58,7 +58,7 @@ For an arm whose X and Z axes can move at the same time (门型轨迹), give X a
 | 锁螺丝 M2~M3 | 1.0~2.0 | 含取钉 |
 | 人工上料 (单件) | 2~4 | |
 
-Replace estimates with measured values after prototype debugging, and re-run the analysis.
+When a 3D layout exists, take pick-and-place X/Z times from the `layout3d.py` report (X/Z 单程估算) so the cycle table matches the geometry. Replace estimates with measured values after prototype debugging, and re-run the analysis.
 
 ## 5. 动作表 CSV
 

@@ -70,7 +70,7 @@ def load(path, scale):
             vetoes.append((name, vals, note))
             continue
         try:
-            weight = float(w)
+            weight = float(w[:-1]) if w.endswith("%") else float(w)
             scores = [float(r[i]) for i, _ in schemes]
         except ValueError:
             fail(f"第 {n} 行: 权重或得分不是数字")
@@ -123,15 +123,16 @@ def main(argv=None):
                     flips.append(f"「{c[0]}」权重 ×{f:g} 时第一名变为 {schemes[win]}")
 
     wsum = sum(c[1] for c in crits)
+    md = lambda s: str(s).replace("|", "\\|")
     lines = ["## 方案加权评分", "",
-             "| 评价项 | 权重 | " + " | ".join(schemes) + " | 依据 |",
+             "| 评价项 | 权重 | " + " | ".join(md(s) for s in schemes) + " | 依据 |",
              "|---|---:|" + "---:|" * n + "---|"]
     for name, w, scores, note in crits:
         cells = [f"{s:g} ({w / wsum * s / a.scale * 100:.1f})" for s in scores]
-        lines.append(f"| {name} | {w / wsum:.0%} | " + " | ".join(cells) + f" | {note} |")
+        lines.append(f"| {md(name)} | {w / wsum:.0%} | " + " | ".join(cells) + f" | {md(note)} |")
     for name, vals, note in vetoes:
-        lines.append(f"| {name} | 否决项 | " + " | ".join("满足" if v else "**不满足**" for v in vals)
-                     + f" | {note} |")
+        lines.append(f"| {md(name)} | 否决项 | " + " | ".join("满足" if v else "**不满足**" for v in vals)
+                     + f" | {md(note)} |")
     lines.append("| **加权总分 (满分 100)** | 100% | " + " | ".join(
         f"**{t:.1f}**" if alive[j] else f"~~{t:.1f}~~ 否决" for j, t in enumerate(tot)) + " | |")
     lines += ["", "单元格格式: 得分 (加权得分)", "", "**排名**", ""]

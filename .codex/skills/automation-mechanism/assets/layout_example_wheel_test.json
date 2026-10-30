@@ -5,7 +5,7 @@
     {"id": "guard", "type": "enclosure", "name": "防护罩", "size": [1200, 800, 1000], "open_front": true},
 
     {"id": "shuttle", "type": "linear_module", "name": "料盘穿梭模组", "at": [-420, -200], "rot": 90,
-     "stroke": 250, "pos": 1},
+     "stroke": 250, "pos": 1, "payload": [200, 150, 45]},
     {"id": "tray", "type": "tray", "name": "来料料盘", "at": "shuttle.carriage", "size": [200, 150, 20]},
     {"id": "part_in", "type": "product", "name": "待测模组", "at": "tray.center",
      "product": {"shape": "box", "size": [40, 30, 25]}},
@@ -14,7 +14,7 @@
     {"id": "dut", "type": "product", "name": "测试中模组", "at": "fixture.top",
      "product": {"shape": "box", "size": [40, 30, 25]}},
     {"id": "test_slide", "type": "linear_module", "name": "测试头进给模组", "at": [0, -200], "rot": 90,
-     "stroke": 60, "pos": 1},
+     "stroke": 60, "pos": 1, "payload": [60, 120, 60]},
     {"id": "tester", "type": "box", "name": "伺服+扭矩传感器", "at": "test_slide.carriage",
      "size": [60, 120, 60], "color": "#2b2f36"},
     {"id": "coupling", "type": "cylinder", "name": "滚轮驱动轴", "at": [0, -22.5, 101], "rot": 90,

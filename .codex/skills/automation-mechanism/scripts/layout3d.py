@@ -107,15 +107,16 @@ AXIS = {"z": I3, "x": rot_y(90), "y": rot_x(-90)}
 class Part:
     """几何体: box(sx,sy,sz) / cyl(r,h) / tube(ro,ri,h) / cone(r1,r2,h), 中心在 c, 局部轴 Z 经 R 旋转."""
 
-    def __init__(self, name, geo, dims, c, color, R=I3, viewer_only=False, opacity=1.0, sweep=False):
+    def __init__(self, name, geo, dims, c, color, R=I3, viewer_only=False, opacity=1.0, sweep=False, tag=""):
         if any(d <= 0 for d in dims) or (geo == "tube" and dims[1] >= dims[0]):
             raise SpecError(f"零件 '{name}' 尺寸无效: {dims}")
         self.name, self.geo, self.dims, self.c, self.color = name, geo, tuple(dims), tuple(c), color
         self.R, self.viewer_only, self.opacity, self.sweep = R, viewer_only or sweep, opacity, sweep
+        self.tag = tag  # "product" 产品; "push" 允许接触产品的执行件运动包络
 
     def moved(self, R, t):
         return Part(self.name, self.geo, self.dims, vadd(mvec(R, self.c), t), self.color,
-                    mmul(R, self.R), self.viewer_only, self.opacity, self.sweep)
+                    mmul(R, self.R), self.viewer_only, self.opacity, self.sweep, self.tag)
 
     def half(self):
         g, d = self.geo, self.dims
@@ -132,7 +133,7 @@ class Part:
 
 class Builder:
     def __init__(self):
-        self.parts, self.anchors, self.lines, self.params, self.notes = [], {}, [], [], []
+        self.parts, self.anchors, self.lines, self.params, self.notes, self.calc = [], {}, [], [], [], []
         self.main = C["alu"]
 
     def add(self, part):
@@ -177,6 +178,13 @@ def num(c, key, default=None, lo=0.0):
     return float(v)
 
 
+def enum(c, key, choices, default):
+    v = c.get(key, default)
+    if v not in choices:
+        raise SpecError(f"组件 {c['id']}: {key} 应为 {' / '.join(map(str, choices))}, 当前 {v!r}")
+    return v
+
+
 def clamp(v, lo, hi):
     return max(lo, min(hi, v))
 
@@ -187,15 +195,15 @@ def product_parts(b, prod, x, y, z, name):
     try:
         if shape == "ring":
             od, id_, h = float(prod["od"]), float(prod["id"]), float(prod["h"])
-            b.tubez(name, x, y, z, z + h, od / 2, id_ / 2, C["product"])
+            b.tubez(name, x, y, z, z + h, od / 2, id_ / 2, C["product"], tag="product")
             return h, od / 2
         if shape == "disc":
             d, h = float(prod["d"]), float(prod["h"])
-            b.cylz(name, x, y, z, z + h, d / 2, C["product"])
+            b.cylz(name, x, y, z, z + h, d / 2, C["product"], tag="product")
             return h, d / 2
         if shape == "box":
             sx, sy, h = (float(v) for v in prod["size"])
-            b.box(name, x - sx / 2, x + sx / 2, y - sy / 2, y + sy / 2, z, z + h, C["product"])
+            b.box(name, x - sx / 2, x + sx / 2, y - sy / 2, y + sy / 2, z, z + h, C["product"], tag="product")
             return h, math.hypot(sx, sy) / 2
     except (KeyError, TypeError, ValueError):
         pass
@@ -209,6 +217,15 @@ def product_fmt(prod):
     if s == "disc":
         return f"圆片 Φ{prod['d']:g}×{prod['h']:g}"
     return "块 " + "×".join(f"{v:g}" for v in prod["size"])
+
+
+def move_time(dist, vmax, acc):
+    """梯形速度点到点时间 (mm, mm/s, mm/s²)."""
+    if dist <= 0:
+        return 0.0
+    if dist >= vmax * vmax / acc:
+        return dist / vmax + vmax / acc
+    return 2 * math.sqrt(dist / acc)
 
 
 def at_pose(c, P, default=(0, 0)):
@@ -225,7 +242,7 @@ def b_frame(c, P, b):
     foot = 100.0
     b.main = C["frame"]
     b.box("台板", -L / 2, L / 2, -W / 2, W / 2, -t, 0, C["plate"])
-    if c.get("style", "cabinet") == "legs":
+    if enum(c, "style", ("cabinet", "legs"), "cabinet") == "legs":
         for sx in (-1, 1):
             for sy in (-1, 1):
                 b.box("立柱", sx * (L / 2 - 20), sx * (L / 2 - 80), sy * (W / 2 - 20), sy * (W / 2 - 80),
@@ -286,7 +303,7 @@ def b_box(c, P, b):
 
 def b_cylinder(c, P, b):
     d, h = num(c, "d", 50), num(c, "h", 100)
-    axis = c.get("axis", "z")
+    axis = enum(c, "axis", ("z", "x"), "z")
     col = c.get("color", C["alu"])
     b.main = col
     if axis == "z":
@@ -306,8 +323,8 @@ def b_turntable(c, P, b):
     fx = c.get("fixture", {})
     fd, fh = float(fx.get("d", 40)), float(fx.get("h", 20))
     start = float(c.get("start_angle", -90))
-    sgn = -1 if c.get("direction", "ccw") == "cw" else 1
-    drive = c.get("drive", "dd")
+    sgn = -1 if enum(c, "direction", ("ccw", "cw"), "ccw") == "cw" else 1
+    drive = enum(c, "drive", ("dd", "indexer", "servo"), "dd")
     z0 = H - thk
     hub = 25.0
     if z0 - hub < 30:
@@ -346,6 +363,22 @@ def b_turntable(c, P, b):
         ztop_max = max(ztop_max, zt)
         b.anchors[f"S{i + 1}"] = (x, y, zt)
     b.anchors["center"] = (0, 0, H)
+    rr = fd / 2
+    if prod:
+        rr = max(rr, product_parts(Builder(), prod, 0, 0, 0, "x")[1])
+    nseg, ro, ri = 24, R + rr, max(R - rr, 1.0)
+    for k in range(nseg):
+        a = 2 * math.pi * k / nseg
+        b.boxc("旋转包络", ((ro + ri) / 2 * math.cos(a), (ro + ri) / 2 * math.sin(a), (H + ztop_max) / 2),
+               (ro - ri, 2 * ro * math.tan(math.pi / nseg), ztop_max - H), C["product"],
+               R=rot_z(math.degrees(a)), sweep=True, opacity=0.06)
+    if drive == "indexer":
+        b.calc.append(f"mech_calc.py indexer --stations {n} --cycle-time <节拍s> --table-dia {dia:g} "
+                      f"--table-thk {thk:g} --fixture-mass <治具+产品kg> --fixture-radius {R:g}")
+    else:
+        b.calc.append(f"mech_calc.py rotary --stations {n} --index-time <分度s> --cycle-time <节拍s> "
+                      f"--table-dia {dia:g} --table-thk {thk:g} --fixture-mass <治具+产品kg> --fixture-radius {R:g}"
+                      + (" --ratio <减速比> --backlash-arcmin <回程间隙>" if drive == "servo" else ""))
     cp = c.get("center_plate")
     if cp:
         cpd = float(cp.get("d", 2 * (R - fd / 2 - 15)))
@@ -385,7 +418,7 @@ def b_magazine(c, P, b):
     sp = stack.parts[0]
     stack_h = min(tube_h * 0.7, 40 * ph)
     dims = sp.dims[:-1] + (stack_h,) if sp.geo != "box" else sp.dims[:2] + (stack_h,)
-    b.add(Part("料柱", sp.geo, dims, (0, 0, H + ph + 1 + stack_h / 2), C["product"]))
+    b.add(Part("料柱", sp.geo, dims, (0, 0, H + ph + 1 + stack_h / 2), C["product"], tag="product"))
     product_parts(b, prod, s, 0, H, "待取产品")
     b.box("推片", x_blade, -od / 2 - 1, -od * 0.35, od * 0.35, H + 0.3, H + ph * 0.8, C["steel"])
     b.cyl("活塞杆", (x_blade - 7.5, 0, H + sq / 2), max(2.0, bore * 0.2), 15, C["steel"], axis="x")
@@ -436,14 +469,14 @@ def b_pick_place(c, P, b):
     side = num(c, "side", 90)
     m = num(c, "margin", 60)
     nl = num(c, "nozzle_len", 50)
-    drive = c.get("drive", "cylinder")
+    drive = enum(c, "drive", ("cylinder", "module"), "cylinder")
     pos = clamp(float(c.get("pos", 0)), 0.0, 1.0)
     center = P(c.get("center", [0, 0]))
-    post_at = c.get("post_at", "auto")
+    post_at = enum(c, "post_at", ("auto", "start", "end"), "auto")
     if post_at == "auto":
         post_at = "start" if math.dist(pf[:2], center[:2]) >= math.dist(pt[:2], center[:2]) else "end"
     nx, ny = -dy / L, dx / L
-    ps = c.get("post_side", "auto")
+    ps = enum(c, "post_side", ("auto", "left", "right"), "auto")
     if ps == "auto":
         mx, my = (pf[0] + pt[0]) / 2, (pf[1] + pt[1]) / 2
         dl = math.hypot(mx + nx * side - center[0], my + ny * side - center[1])
@@ -480,8 +513,19 @@ def b_pick_place(c, P, b):
             b.box("运动包络 (Z 下降)", x - 6, x + 6, -6, 6, zw + 1, z_up, C["product"], **sw)
     b.anchors.update({"pick": (0, 0, zf), "place": (L, 0, zt), "up": (xc, 0, z_up)})
     z_need = zs + abs(zf - zt)
+    if mod:
+        tx, tz = move_time(L, 800, 5000) + 0.05, move_time(z_need, 400, 3000) + 0.05
+    else:
+        tx, tz = 0.05 + L / 300, 0.05 + z_need / 200
+    b.calc.append(f"mech_calc.py {'belt' if L > 600 else 'screw'} --mass <X轴移动质量kg> "
+                  + ("--pulley-dia 30 " if L > 600 else "--lead 10 ") + f"--speed 800 --stroke {L:.0f}"
+                  if mod else f"mech_calc.py cylinder --mass <X轴移动质量kg> --stroke {L:.0f} --speed 300")
+    b.calc.append(f"mech_calc.py screw --mass <Z轴移动质量kg> --lead 5 --speed 400 --stroke {z_need:.0f} --vertical"
+                  if mod else f"mech_calc.py cylinder --mass <Z轴移动质量kg> --mode vertical --stroke {z_need:.0f} --speed 200")
     b.params += [("X 行程", f"{L:.1f} mm"), ("Z 行程", f"≥ {z_need:.1f} mm"),
                  ("取/放高度差", f"{zt - zf:+.1f} mm"), ("驱动", "伺服模组" if mod else "气缸"),
+                 ("X/Z 单程估算", f"{tx:.2f} / {tz:.2f} s"),
+                 ("取放循环估算", f"{4 * tz + 2 * tx + 0.2:.2f} s (含吸/放各 0.1 s)"),
                  ("立柱位置", ("取料端" if post_at == "start" else "放料端") + ("左侧" if s > 0 else "右侧"))]
     if not mod and L > 300:
         b.notes.append(("注意", f"X 行程 {L:.0f} mm > 300 mm, 气缸取放冲击大, 建议用伺服模组"))
@@ -501,7 +545,7 @@ def b_actuator(c, P, b, probe=False):
         raise SpecError(f"组件 {c['id']}: 需要 toward (推向的点) 或 dir (推动方向°)")
     bore = num(c, "bore", 10 if probe else 16)
     stroke = num(c, "stroke", 10 if probe else 20)
-    head = c.get("head", "probe" if probe else "block")
+    head = enum(c, "head", ("block", "probe", "none"), "probe" if probe else "block")
     zt = tip[2]
     sq = bore + 14
     b.main = C["sensor"] if head == "probe" else C["pneu"]
@@ -519,8 +563,15 @@ def b_actuator(c, P, b, probe=False):
     bx1 = x_back - 15
     bx0 = bx1 - (stroke + 40)
     b.box("气缸本体", bx0, bx1, -sq / 2, sq / 2, zt - sq / 2, zt + sq / 2, C["pneu"])
-    if c.get("support", "down") == "down" and zt - sq / 2 > 1:
+    if enum(c, "support", ("down", "none"), "down") == "down" and zt - sq / 2 > 1:
         b.box("支架", bx0 + 5, bx1 - 5, -sq / 2, sq / 2, 0, zt - sq / 2, C["alu"])
+    sw = {"sweep": True, "opacity": 0.1, "tag": "push"}
+    if head == "block":
+        b.box("运动包络 (推出)", -stroke - hd, 0, -hw / 2, hw / 2, zt - hh / 2, zt + hh / 2, C["product"], **sw)
+    elif head == "probe":
+        b.box("运动包络 (探头进给)", -stroke - 60, 0, -12, 12, zt - 12, zt + 12, C["product"], **sw)
+    b.calc.append(f"mech_calc.py cylinder --mass <探头组件kg> --stroke {stroke:g} --speed 100" if head == "probe"
+                  else f"mech_calc.py cylinder --mode clamp --force <所需推/夹紧力N> --stroke {stroke:g}")
     b.anchors.update({"tip": (0, 0, zt), "retracted": (-stroke, 0, zt)})
     b.params += [("气缸", f"Φ{bore:g} × {stroke:g} mm"), ("动作方向", f"{yaw:.0f}°"),
                  ("末端", {"block": "推块", "probe": "探头", "none": "无"}.get(head, head))]
@@ -558,6 +609,8 @@ def overhead(c, P, b, kind):
         z = zt + gap
         b.main = C["motor"]
         b.cylz("压头/夹头", 0, 0, z, z + 25, cd / 2, C["steel"])
+        if gap > 1:
+            b.cylz("运动包络 (下压)", 0, 0, zt + 0.5, z, cd / 2, C["product"], sweep=True, opacity=0.1, tag="push")
         b.cylz("主轴", 0, 0, z + 25, z + 65, 8, C["steel"])
         b.box("伺服电机", -30, 30, -30, 30, z + 65, z + 165, C["motor"])
         b.box("Z轴滑台", -65, -30, -25, 25, z + 65, z + 165 + zs, C["pneu"])
@@ -571,6 +624,9 @@ def overhead(c, P, b, kind):
         z = zt + gap
         b.main = C["pneu"]
         b.cylz("压头", 0, 0, z, z + 20, bore * 0.3, C["steel"])
+        if gap > 1:
+            b.cylz("运动包络 (下压)", 0, 0, zt + 0.5, z, bore * 0.3, C["product"], sweep=True, opacity=0.1, tag="push")
+        b.calc.append(f"mech_calc.py cylinder --mode clamp --force <压装力N> --stroke {st:g}")
         b.cylz("活塞杆", 0, 0, z + 20, z + 60, bore * 0.2, C["steel"])
         b.box("压装气缸", -sq / 2, sq / 2, -sq / 2, sq / 2, z + 60, z + 60 + st + 80, C["pneu"])
         top, back = z + 60 + st + 80, sq / 2
@@ -618,6 +674,16 @@ def b_module(c, P, b):
     mx0 = stroke + 90 if vertical else -200
     b.box("伺服电机", mx0, mx0 + 110, -30, 30, h / 2 - 30, h / 2 + 30, C["motor"])
     b.anchors.update({"carriage": (xc, 0, h + 15), "start": (0, 0, h + 15), "end": (stroke, 0, h + 15)})
+    pl = c.get("payload")
+    if pl:
+        try:
+            lx, wy, hz = (float(v) for v in pl)
+        except (TypeError, ValueError):
+            raise SpecError(f"组件 {c['id']}: payload 应为 [长, 宽, 高]")
+        b.box("运动包络 (滑台负载)", -lx / 2, stroke + lx / 2, -wy / 2, wy / 2, h + 15, h + 15 + hz,
+              C["product"], sweep=True, opacity=0.1)
+    b.calc.append(f"mech_calc.py screw --mass <移动质量kg> --lead <导程mm> --speed <mm/s> --stroke {stroke:g}"
+                  + (" --vertical" if vertical else ""))
     if vertical:
         b.transform(rot_y(-90))
     b.params += [("有效行程", f"{stroke:g} mm"), ("截面", f"{w:g} × {h:g} mm"),
@@ -640,6 +706,7 @@ def b_conveyor(c, P, b):
     b.box("驱动电机", L - 100, L - 20, w / 2 + 14, w / 2 + 84, H - 70, H - 10, C["motor"])
     b.anchors.update({"start": (30, 0, H), "end": (L - 30, 0, H), "mid": (L / 2, 0, H)})
     b.params += [("长度 × 带宽", f"{L:g} × {w:g} mm"), ("输送面高度", f"{H:g} mm")]
+    b.calc.append("mech_calc.py conveyor --load <在线总质量kg> --speed <m/min>")
     return at_pose(c, P)
 
 
@@ -716,7 +783,7 @@ def b_light_curtain(c, P, b):
               0, z0 + hgt + 20, C["safety"])
     b.box("保护区域", -span / 2, span / 2, -1, 1, z0, z0 + hgt, C["red"], viewer_only=True, opacity=0.07)
     b.params += [("保护宽度", f"{span:g} mm"), ("保护高度", f"{hgt:g} mm"), ("下沿高度", f"{z0:g} mm")]
-    b.notes.append(("注意", "光栅安全距离用 mech_calc.py safety 计算, 并实测停止时间"))
+    b.calc.append("mech_calc.py safety --curtain-ms <光栅响应ms> --stop-ms <实测停止ms> --resolution <分辨率mm>")
     return at_pose(c, P)
 
 
@@ -744,6 +811,74 @@ def b_tower_light(c, P, b):
     return at_pose(c, P)
 
 
+def b_scara(c, P, b):
+    base = P(c.get("at", [0, 0]))
+    tg = c.get("targets")
+    if not isinstance(tg, list) or not tg:
+        raise SpecError(f"组件 {c['id']}: scara 需要 targets (工作点列表, 如取料点和放料点)")
+    pts = [P(x, "targets") for x in tg]
+    reach = num(c, "reach", 400)
+    a1 = num(c, "a1", reach * 0.55)
+    a2 = num(c, "a2", reach - a1)
+    reach = a1 + a2
+    zs, tool, clear = num(c, "z_stroke", 150), num(c, "tool_len", 60), num(c, "clear", 30)
+    elbow = enum(c, "elbow", ("right", "left"), "right")
+    k = int(num(c, "pose", 1)) - 1
+    if k >= len(pts):
+        raise SpecError(f"组件 {c['id']}: pose 超出 targets 数量")
+    loc = [(p[0] - base[0], p[1] - base[1], p[2] - base[2]) for p in pts]
+    zmax, zmin = max(p[2] for p in loc), min(p[2] for p in loc)
+    f = zmax + tool + clear
+    zl2, zl1, top = f + 20, f + 70, f + 130
+    rmin = abs(a1 - a2) + 30
+    far = 0.0
+    for i, (x, y, _) in enumerate(loc, start=1):
+        d = math.hypot(x, y)
+        far = max(far, d)
+        if d > reach - 5:
+            b.notes.append(("NG", f"目标 T{i} 距离 {d:.0f} mm 超出臂展 {reach:g} mm"))
+        elif d < rmin:
+            b.notes.append(("NG", f"目标 T{i} 距离 {d:.0f} mm 小于最小工作半径 {rmin:.0f} mm"))
+    if zmax - zmin + clear > zs:
+        b.notes.append(("注意", f"目标高度差 {zmax - zmin:.0f} mm + 抬起 {clear:g} mm 超出 Z 行程 {zs:g} mm"))
+    b.main = C["white"]
+    b.box("底座", -100, 100, -100, 100, 0, 20, C["steel"])
+    b.cylz("机身", 0, 0, 20, zl1, 75, C["white"])
+    x, y = loc[k][0], loc[k][1]
+    d = clamp(math.hypot(x, y), rmin, reach - 1)
+    c2 = clamp((d * d - a1 * a1 - a2 * a2) / (2 * a1 * a2), -1.0, 1.0)
+    th2 = math.acos(c2) * (1 if elbow == "right" else -1)
+    th1 = math.atan2(y, x) - math.atan2(a2 * math.sin(th2), a1 + a2 * math.cos(th2))
+    ex, ey = a1 * math.cos(th1), a1 * math.sin(th1)
+    wx, wy = ex + a2 * math.cos(th1 + th2), ey + a2 * math.sin(th1 + th2)
+    b.boxc("第一臂", (ex / 2, ey / 2, (zl1 + top) / 2), (a1 + 120, 120, top - zl1), C["white"],
+           R=rot_z(math.degrees(th1)))
+    b.boxc("第二臂", ((ex + wx) / 2, (ey + wy) / 2, (zl2 + zl1) / 2), (a2 + 90, 90, zl1 - zl2), C["white"],
+           R=rot_z(math.degrees(th1 + th2)))
+    b.cylz("肘关节", ex, ey, zl2, top + 3, 50, C["steel"])
+    b.cylz("丝杆花键轴", wx, wy, f, top + 60, 10, C["steel"])
+    b.cylz("末端工具", wx, wy, f - tool, f, 8, C["dark"])
+    if c.get("sweep", True):
+        sw = {"sweep": True, "opacity": 0.05}
+        b.cylz("运动包络 (手臂旋转)", 0, 0, zl2, top, reach + 45, C["product"], **sw)
+        for i in range(len(loc)):
+            (x0, y0, z0), (x1, y1, _) = loc[i], loc[(i + 1) % len(loc)]
+            seg = math.hypot(x1 - x0, y1 - y0)
+            if seg > 1 and (i + 1 < len(loc) or len(loc) > 2):
+                b.boxc("运动包络 (工具移动)", ((x0 + x1) / 2, (y0 + y1) / 2, (f - tool + zl2) / 2),
+                       (seg + 30, 30, zl2 - f + tool), C["product"], R=rot_z(math.degrees(math.atan2(y1 - y0, x1 - x0))),
+                       sweep=True, opacity=0.1)
+            if f - tool - z0 > 1.5:
+                b.cylz("运动包络 (Z 下降)", x0, y0, z0 + 1, f - tool, 10, C["product"], sweep=True, opacity=0.1)
+    b.anchors.update({"base": (0, 0, 0), "tool": (wx, wy, f - tool)})
+    b.anchors.update({f"T{i}": p for i, p in enumerate(loc, start=1)})
+    b.params += [("臂展", f"{reach:g} mm (一臂 {a1:g} / 二臂 {a2:g})"), ("Z 行程", f"{zs:g} mm"),
+                 ("最远目标", f"{far:.0f} mm (臂展利用 {far / reach:.0%})"),
+                 ("目标高度差", f"{zmax - zmin:.0f} mm"), ("目标数", f"{len(loc)}")]
+    b.notes.append(("注意", "SCARA 按厂家样本核对负载、惯量和标准循环时间; 运动包络按整圈旋转, 实际可用软限位缩小"))
+    return (base[0], base[1], base[2], 0.0)
+
+
 TYPES = {
     "frame": (b_frame, "机架"), "enclosure": (b_enclosure, "防护罩"),
     "box": (b_box, "方块"), "cylinder": (b_cylinder, "圆柱"),
@@ -755,6 +890,7 @@ TYPES = {
     "conveyor": (b_conveyor, "皮带线"), "chute": (b_chute, "滑道"), "bin": (b_bin, "料盒"),
     "tray": (b_tray, "料盘"), "product": (b_product, "产品"),
     "light_curtain": (b_light_curtain, "安全光栅"), "hmi": (b_hmi, "触摸屏"), "tower_light": (b_tower_light, "三色灯"),
+    "scara": (b_scara, "SCARA 机器人"),
 }
 NO_PLATE_CHECK = {"frame", "enclosure", "light_curtain", "hmi", "tower_light"}
 
@@ -766,7 +902,7 @@ CATALOG = {
     "cylinder": ("d, h, axis z|x, color", "top"),
     "turntable": ("dia, thk, height, stations, fixture_radius, fixture {d,h}, drive dd|indexer|servo, "
                   "start_angle, direction ccw|cw, product, center_plate {d,z}", "S1..Sn center plate"),
-    "linear_module": ("stroke, width, height, pos 0~1, vertical", "carriage start end"),
+    "linear_module": ("stroke, width, height, pos 0~1, vertical, payload [长,宽,高]", "carriage start end"),
     "pick_place": ("from, to, z_stroke, drive cylinder|module, side, post_side auto|left|right, "
                    "post_at auto|start|end, margin, nozzle_len, pos, center", "pick place up"),
     "cylinder_actuator": ("tip, toward|dir, bore, stroke, head block|probe|none, head_size [长,宽,高], "
@@ -783,16 +919,43 @@ CATALOG = {
     "bin": ("size [宽,深,高], color", "top"),
     "tray": ("size [宽,深,高], color", "center corner"),
     "product": ("shape ring|disc|box + od/id/h | d/h | size", "top"),
-    "light_curtain": ("span, height, z0", "-"),
+    "light_curtain": ("span, height, z0, min_distance", "-"),
     "hmi": ("at [x,y,z], arm", "-"),
     "tower_light": ("at [x,y,z], pole", "-"),
+    "scara": ("at, targets [点...], reach | a1, a2, z_stroke, tool_len, clear, elbow right|left, pose, sweep",
+              "base tool T1..Tn"),
+}
+
+COMMON_KEYS = {"id", "type", "name", "touch", "note"}
+PLACED = {"at", "rot"}
+ACT = {"tip", "toward", "dir", "bore", "stroke", "head", "head_size", "support"}
+OVER = {"target", "arm", "post_dir", "center"}
+ALLOWED = {
+    "frame": {"size", "plate", "style"} | PLACED, "enclosure": {"size", "profile", "open_front"} | PLACED,
+    "box": {"size", "color"} | PLACED, "cylinder": {"d", "h", "axis", "color"} | PLACED,
+    "turntable": {"dia", "thk", "height", "stations", "fixture_radius", "fixture", "start_angle", "direction",
+                  "drive", "product", "center_plate"} | PLACED,
+    "linear_module": {"stroke", "width", "height", "pos", "vertical", "payload"} | PLACED,
+    "pick_place": {"from", "to", "z_stroke", "side", "margin", "nozzle_len", "drive", "pos", "center",
+                   "post_at", "post_side"},
+    "cylinder_actuator": ACT, "probe": ACT,
+    "camera": OVER | {"wd", "fov"}, "spindle": OVER | {"gap", "z_stroke", "chuck_d"},
+    "press": OVER | {"gap", "bore", "stroke"}, "tool": OVER | {"gap", "size"},
+    "bowl_feeder": {"bowl_d", "bowl_h", "base_h", "track_len", "track_z", "product"} | PLACED,
+    "magazine": {"product", "height", "tube_h", "stroke", "bore"} | PLACED,
+    "conveyor": {"length", "width", "height"} | PLACED, "chute": {"from", "to", "width", "wall_h"},
+    "bin": {"size", "color"} | PLACED, "tray": {"size", "color"} | PLACED,
+    "product": {"product", "shape", "od", "id", "h", "d", "size"} | PLACED,
+    "light_curtain": {"span", "height", "z0", "min_distance"} | PLACED, "hmi": {"arm"} | PLACED,
+    "tower_light": {"pole"} | PLACED,
+    "scara": {"at", "targets", "reach", "a1", "a2", "z_stroke", "tool_len", "clear", "elbow", "pose", "sweep"},
 }
 
 
 def print_types():
     print("| 类型 | 中文 | 主要参数 | 锚点 |\n|---|---|---|---|")
     for t, (params, anchors) in CATALOG.items():
-        print(f"| {t} | {TYPES[t][1]} | {params} | {anchors} |")
+        print(f"| {t} | {TYPES[t][1]} | {params.replace('|', '\\|')} | {anchors} |")
     print("\n点位写法: [x,y] / [x,y,z] / \"组件ID.锚点\" / {\"ref\": \"tt.S2\", \"out\": 6, \"up\": -1.5, "
           "\"offset\": [dx,dy,dz]}  (out = 沿组件中心向外的水平距离)")
 
@@ -810,8 +973,9 @@ class Comp:
         self.parts = [p.moved(R, t) for p in b.parts]
         self.anchors = {k: vadd(mvec(R, v), t) for k, v in b.anchors.items()}
         self.lines = [[vadd(mvec(R, v), t) for v in ln] for ln in b.lines]
-        self.params, self.notes, self.color = b.params, b.notes, b.main
+        self.params, self.notes, self.color, self.calc = b.params, b.notes, b.main, b.calc
         self.touch = set(spec.get("touch", []))
+        self.riders = set()  # 装在本组件滑台上、随之运动的组件
         boxes = [p.aabb() for p in self.parts if not p.viewer_only] or [p.aabb() for p in self.parts]
         self.lo = [min(bx[0][i] for bx in boxes) for i in range(3)]
         self.hi = [max(bx[1][i] for bx in boxes) for i in range(3)]
@@ -882,6 +1046,34 @@ def build_layout(spec):
         if len(nxt) == len(pending):
             raise SpecError("无法解析的锚点: " + "; ".join(f"{k} → {v}" for k, v in missing.items()))
         pending = nxt
+    ids = {cs["id"] for cs in comps_spec}
+    specs = {cs["id"]: cs for cs in comps_spec}
+
+    def mount(cid):
+        v = specs[cid].get("at")
+        v = v.get("ref") if isinstance(v, dict) else v
+        return tuple(v.split(".", 1)) if isinstance(v, str) and "." in v else None
+    for cid in ids:
+        cur, seen = cid, set()
+        while cur in specs and cur not in seen:
+            seen.add(cur)
+            m = mount(cur)
+            if m is None:
+                break
+            if m[1] == "carriage" and m[0] in built:
+                built[m[0]].riders.add(cid)
+            cur = m[0]
+    for cs in comps_spec:
+        comp = built[cs["id"]]
+        allowed = COMMON_KEYS | ALLOWED[cs["type"]]
+        bad = [k for k in cs if not k.startswith("_") and k not in allowed]
+        if bad:
+            hint = "; at/rot 对该类型无效, 位置由 from/to/tip/target 决定" if {"at", "rot"} & set(bad) else ""
+            comp.notes.insert(0, ("注意", f"未知参数 {', '.join(bad)} 已忽略 (可用: "
+                                         f"{', '.join(sorted(ALLOWED[cs['type']]))}){hint}"))
+        missing = [x for x in cs.get("touch", []) if x not in ids]
+        if missing:
+            comp.notes.insert(0, ("注意", f"touch 中的组件不存在: {', '.join(map(str, missing))}"))
     return [built[cs["id"]] for cs in comps_spec], anchors
 
 
@@ -944,6 +1136,10 @@ def check_layout(comps, tol):
                 for pb, ob, bb in solid[b.id]:
                     if pa.sweep and pb.sweep:
                         continue
+                    if {pa.tag, pb.tag} == {"push", "product"}:
+                        continue
+                    if (pa.sweep and b.id in a.riders) or (pb.sweep and a.id in b.riders):
+                        continue
                     if any(ba[1][k] < bb[0][k] + tol or bb[1][k] < ba[0][k] + tol for k in range(3)):
                         continue
                     d = sat_depth(oa, ob)
@@ -968,6 +1164,29 @@ def check_layout(comps, tol):
         for c in comps:
             if c.type not in NO_PLATE_CHECK and c.hi[2] > hz:
                 issues.append(("注意", f"{c.name} ({c.id}) 顶部 {c.hi[2]:.0f} mm 高于防护罩 {hz:.0f} mm"))
+    for lc in (c for c in comps if c.type == "light_curtain"):
+        Ri, span, best = rot_z(-lc.pose[3]), float(lc.spec.get("span", 800)), None
+        for c in comps:
+            for p in c.parts:
+                if not p.sweep:
+                    continue
+                loc = [mvec(Ri, vsub(v, lc.pose[:3])) for v in hull(p)[0]]
+                if max(v[0] for v in loc) < -span / 2 - 300 or min(v[0] for v in loc) > span / 2 + 300:
+                    continue
+                d = min(v[1] for v in loc)
+                if best is None or d < best[0]:
+                    best = (d, c, p)
+        if best is None:
+            continue
+        d, c, p = best
+        need = lc.spec.get("min_distance")
+        where = f"{lc.name}: 到最近运动件 {c.name} ({c.id})「{p.name}」水平距离 {d:.0f} mm"
+        if d < 0:
+            issues.append(("NG", f"{lc.name}: 运动件 {c.name} ({c.id})「{p.name}」伸到光栅外侧 {-d:.0f} mm"))
+        elif need:
+            issues.append(("OK" if d >= need else "NG", f"{where} {'≥' if d >= need else '<'} 安全距离 {need:g} mm"))
+        else:
+            issues.append(("注意", f"{where}; 须 ≥ mech_calc.py safety 算出的安全距离 S (填 min_distance 可自动比对)"))
     for c in comps:
         issues += [(lv, f"{c.name} ({c.id}): {m}") for lv, m in c.notes]
     if not any("干涉" in m for _, m in issues):
@@ -1117,7 +1336,13 @@ class StepWriter:
         return self.add(f"MANIFOLD_SOLID_BREP({sstr(name)},{shell})")
 
 
-def write_step(path, title, comps, nseg=24, flat=False):
+def up_map(up):
+    """Z 向上的布局坐标 → 输出坐标. up=y 时 (x, y, z) → (x, z, -y), SolidWorks/Creo 正视图 = 操作者正面."""
+    return (lambda v: (v[0], v[2], -v[1])) if up == "y" else (lambda v: v)
+
+
+def write_step(path, title, comps, nseg=24, flat=False, up="y"):
+    U = up_map(up)
     w = StepWriter()
     app = w.add("APPLICATION_CONTEXT('core data for automotive mechanical design processes')")
     w.add(f"APPLICATION_PROTOCOL_DEFINITION('international standard','automotive_design',2000,{app})")
@@ -1158,6 +1383,8 @@ def write_step(path, title, comps, nseg=24, flat=False):
             if p.viewer_only:
                 continue
             V, F = mesh(p, nseg)
+            if flat:
+                V = [U(v) for v in V]
             brep = w.solid(p.name, V, F)
             styled.append(w.add(f"STYLED_ITEM('color',({style(p.color)}),{brep})"))
             out.append(brep)
@@ -1184,7 +1411,7 @@ def write_step(path, title, comps, nseg=24, flat=False):
             absr = w.add(f"ADVANCED_BREP_SHAPE_REPRESENTATION({sstr(name)},({','.join([ax0] + breps)}),{ctx})")
             w.add(f"SHAPE_DEFINITION_REPRESENTATION({pds},{absr})")
             a = math.radians(c.pose[3])
-            axp = w.axis(c.pose[:3], (0.0, 0.0, 1.0), (math.cos(a), math.sin(a), 0.0))
+            axp = w.axis(U(c.pose[:3]), U((0.0, 0.0, 1.0)), U((math.cos(a), math.sin(a), 0.0)))
             root_items.append(axp)
             nauo = w.add(f"NEXT_ASSEMBLY_USAGE_OCCURRENCE('{k}',{sstr(name)},'',{pd_root},{pd},$)")
             pdsn = w.add(f"PRODUCT_DEFINITION_SHAPE('Placement','Placement of an item',{nauo})")
@@ -1209,12 +1436,14 @@ def write_step(path, title, comps, nseg=24, flat=False):
     return len(w.ents)
 
 
-def write_stl(path, comps, nseg=32):
+def write_stl(path, comps, nseg=32, up="y"):
+    U = up_map(up)
     tris = []
     for c in comps:
         for p in c.parts:
             if not p.viewer_only:
-                tris += triangles(*mesh(p, nseg))
+                V, F = mesh(p, nseg)
+                tris += triangles([U(v) for v in V], F)
     with open(path, "wb") as f:
         f.write(b"layout3d.py concept layout".ljust(80, b" "))
         f.write(struct.pack("<I", len(tris)))
@@ -1578,6 +1807,9 @@ def report(title, comps, anchors, issues, lo, hi, outputs):
     out += ["", "### 锚点坐标", "", "| 锚点 | x | y | z |", "|---|---:|---:|---:|"]
     out += [f"| {k} | {v[0]:.1f} | {v[1]:.1f} | {v[2]:.1f} |" for k, v in anchors.items()]
     out += ["", "### 布局检查", ""] + [f"- [{lv}] {m}" for lv, m in issues]
+    calc = [f"- {c.name} ({c.id}): `python3 scripts/{cmd}`" for c in comps for cmd in c.calc]
+    if calc:
+        out += ["", "### 建议校核 (把 <> 换成实际值后运行)", ""] + calc
     if outputs:
         out += ["", "### 输出文件", ""] + [f"- {o}" for o in outputs]
     out += ["", "> 概念布局为方块级示意 (圆柱在 STEP/STL 中为多棱柱近似), 用于确认布局、行程和空间关系; "
@@ -1607,6 +1839,8 @@ def main(argv=None):
     ap.add_argument("--step", help="输出 STEP (AP214) 装配体")
     ap.add_argument("--step-flat", action="store_true", help="STEP 输出为单零件多实体 (不建装配结构)")
     ap.add_argument("--stl", help="输出 STL")
+    ap.add_argument("--up", choices=["y", "z"], default="y",
+                    help="STEP/STL 向上轴: y = SolidWorks/Creo/Inventor 习惯 (默认), z = NX/中望 3D 习惯")
     ap.add_argument("--bom", help="输出组件清单 CSV")
     ap.add_argument("--cdn", action="store_true", help="HTML 从 CDN 加载 three.js (文件小, 需联网)")
     ap.add_argument("--segments", type=int, default=24, help="STEP 中圆柱的棱数 (默认 24)")
@@ -1646,10 +1880,11 @@ def main(argv=None):
         write_html(a.html, title, comps, issues, env, a.cdn)
         outputs.append(f"{a.html} (浏览器打开; {'CDN 加载 three.js' if a.cdn or not os.path.exists(THREE_JS) else '内嵌 three.js, 可离线'})")
     if a.step:
-        n = write_step(a.step, title, comps, a.segments, a.step_flat)
-        outputs.append(f"{a.step} ({'单零件多实体' if a.step_flat else '装配体, 每个组件一个零件'}, {n} 个实体记录)")
+        n = write_step(a.step, title, comps, a.segments, a.step_flat, a.up)
+        outputs.append(f"{a.step} ({'单零件多实体' if a.step_flat else '装配体, 每个组件一个零件'}, "
+                       f"{'Y' if a.up == 'y' else 'Z'} 向上, {n} 个实体记录)")
     if a.stl:
-        outputs.append(f"{a.stl} ({write_stl(a.stl, comps)} 个三角面)")
+        outputs.append(f"{a.stl} ({write_stl(a.stl, comps, up=a.up)} 个三角面)")
     if a.bom:
         write_bom(a.bom, comps)
         outputs.append(f"{a.bom} (组件清单)")

@@ -29,17 +29,18 @@ Not for: detailed part drawings and GD&T, PLC programs, electrical schematics. F
 | `references/design-review-checklist.md` | 评审检查表 (精度链、安全、防错、维护、成本、磁性) 和简化 FMEA 表. |
 | `references/scheme-document-template.md` | 方案说明书结构、机构说明模板、BOM 表、一页纸汇报、评审 PPT、布局草图. |
 | `references/layout-3d.md` | 3D 概念布局: JSON 格式、坐标约定、组件库 (参数/锚点)、检查项、布置技巧、CAD 中的用法. Read before Step 6. |
-| `scripts/mech_calc.py` | 选型计算: `cylinder vacuum screw belt rotary indexer guide move safety`. |
+| `scripts/mech_calc.py` | 选型计算: `cylinder vacuum gripper screw belt rotary indexer guide move conveyor safety`. |
 | `scripts/cycle_time.py` | 动作表 CSV → CT、关键路径、机构负荷、UPH、余量、ASCII/SVG 甘特图. |
 | `scripts/scheme_score.py` | 加权评分 CSV → 排名、一票否决、权重敏感性. |
-| `scripts/layout3d.py` | 布局 JSON → 交互式 3D 预览 HTML、STEP 装配体、STL、组件清单, 并做静态/取放运动干涉检查. `--types` 列出组件库. |
+| `scripts/layout3d.py` | 布局 JSON → 交互式 3D 预览 HTML、STEP 装配体、STL、组件清单, 并做静态干涉、运动包络干涉、光栅距离、参数拼写检查. `--types` 列出组件库. |
+| `scripts/selftest.py` | 自检: 手算校核值、样例结果、STEP 结构、必须报出的错误. 修改任何脚本后运行, 必须全部通过. |
 | `assets/cycle_example_magnet_ring.csv` | 6 工位磁环表磁全检机动作表样例. |
 | `assets/scoring_example.csv` | 磁环上料方案加权评分样例. |
 | `assets/layout_example_magnet_ring.json` | 6 工位转盘磁环表磁全检机 3D 布局样例 (与上面的节拍样例对应). |
 | `assets/layout_example_wheel_test.json` | 直线式滚轮模组手感测试工作站 3D 布局样例 (穿梭模组、模组取放、皮带线). |
 | `assets/vendor/three.min.js` | three.js r149 (MIT, `three.LICENSE`), 内嵌到 3D 预览中以便离线打开. |
 
-Scripts need Python 3.8+ and no third-party packages. Paths below are relative to this skill folder; from the repository root use `.codex/skills/automation-mechanism/scripts/...`. Every script supports `-h` and `--out <file>` (UTF-8); the calculation scripts also support `--json`. Input CSVs may be UTF-8 or GBK (Excel default on Chinese Windows).
+Scripts need Python 3.8+ and no third-party packages (on Windows call `python` or `py` instead of `python3`). Paths below are relative to this skill folder; from the repository root use `.codex/skills/automation-mechanism/scripts/...`. Every script supports `-h` and `--out <file>` (UTF-8); the calculation scripts also support `--json`. Input CSVs may be UTF-8 or GBK (Excel default on Chinese Windows).
 
 ## Workflow
 
@@ -71,6 +72,8 @@ python3 scripts/mech_calc.py indexer --stations 8 --cycle-time 1.2 --index-angle
 python3 scripts/mech_calc.py guide --C 11.4 --load 600 --stroke 300 --cycles 30
 python3 scripts/mech_calc.py move --dist 150 --speed 800 --accel 5
 python3 scripts/mech_calc.py safety --curtain-ms 15 --control-ms 20 --stop-ms 120 --resolution 30
+python3 scripts/mech_calc.py gripper --mass 0.5 --accel 5
+python3 scripts/mech_calc.py conveyor --load 20 --speed 15 --pulley-dia 50
 ```
 
 Put the result tables in the scheme. Resolve every `[NG]`, and either resolve or carry forward every `[注意]`. Results are preliminary: say so, and name what must be confirmed with the vendor catalog (额定推力/扭矩、允许动能、允许惯量比、T-N 曲线、许用张力). Once a brand and model are chosen, re-run with `--motor-rated-torque/--motor-inertia`.
@@ -82,7 +85,7 @@ Read `references/layout-3d.md`, copy the closer sample from `assets/`, and descr
 python3 scripts/layout3d.py layout.json --html layout.html --step layout.step --bom layout_bom.csv
 ```
 
-Fix every `[注意]` clash (static or motion envelope) by moving components or changing `side`/`post_side`/`post_at`/`post_dir`/`arm`; add `touch` only for intended contact. Re-run until the check is clean, then feed the reported strokes (取放 X/Z 行程) back into Step 5. Deliver the HTML (offline viewer, screenshots for PPT) and the STEP assembly (opens in SolidWorks/Creo/NX as one part per component).
+Fix every `未知参数` warning first, then every clash (static or motion envelope) by moving components or changing `side`/`post_side`/`post_at`/`post_dir`/`arm`; add `touch` only for intended contact. Re-run until the check is clean. Then run the printed `建议校核` commands (fill in masses/forces), feed the reported strokes and time estimates back into Steps 5 and 7, and compare the light-curtain distance with `mech_calc.py safety`. Deliver the HTML (offline viewer, screenshots for PPT) and the STEP assembly (opens in SolidWorks/Creo/NX as one part per component).
 
 ### 7. Prove the cycle time (节拍核算)
 Write the action table as CSV (syntax in `references/cycle-time.md`, full sample in `assets/`), then:
