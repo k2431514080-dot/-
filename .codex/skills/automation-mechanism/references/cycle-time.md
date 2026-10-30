@@ -1,6 +1,6 @@
 # 节拍分析方法
 
-Use in Step 6. Goal: prove the scheme reaches the target UPH with margin, and name the bottleneck.
+Use in Step 7. Goal: prove the scheme reaches the target UPH with margin, and name the bottleneck.
 
 ## 1. 节拍公式
 

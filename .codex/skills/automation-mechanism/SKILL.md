@@ -1,6 +1,6 @@
 ---
 name: automation-mechanism
-description: Use this skill when Codex needs to design, select, size, review, compare, or document mechanical mechanisms for non-standard automation equipment (非标自动化设备机构方案). Covers process/action decomposition; mechanism selection for feeding, separation, pick-and-place, conveying, indexing, locating/clamping, pressing, measuring and sorting; sizing of cylinders, vacuum cups, ball-screw and belt modules, servo motors, rotary tables, cam indexers, linear guides and light-curtain safety distance; cycle time/UPH and bottleneck analysis; risk and error-proofing review; weighted scheme comparison; BOM/cost estimates; and scheme documents for full-inspection, assembly and test machines such as magnetic ring inspection or mouse wheel module assembly equipment.
+description: Use this skill when Codex needs to design, select, size, review, compare, or document mechanical mechanisms for non-standard automation equipment (非标自动化设备机构方案). Covers process/action decomposition; mechanism selection for feeding, separation, pick-and-place, conveying, indexing, locating/clamping, pressing, measuring and sorting; sizing of cylinders, vacuum cups, ball-screw and belt modules, servo motors, rotary tables, cam indexers, linear guides and light-curtain safety distance; cycle time/UPH and bottleneck analysis; quick 3D concept layouts (interactive HTML viewer + STEP assembly for SolidWorks/Creo/NX) with clash and motion-envelope checks; risk and error-proofing review; weighted scheme comparison; BOM/cost estimates; and scheme documents for full-inspection, assembly and test machines such as magnetic ring inspection or mouse wheel module assembly equipment.
 ---
 
 # Automation Mechanism Skill
@@ -13,6 +13,7 @@ Turn a product + process requirement into a buildable mechanism scheme: every ac
 - 现有机构方案的评审、问题分析、提速或降本.
 - 元件选型计算: 气缸、真空吸盘、丝杠/同步带模组、伺服电机、转盘、凸轮分割器、直线导轨、安全光栅.
 - 节拍/UPH 核算、时序甘特图、瓶颈分析.
+- 快速出 3D 概念方案: 交互式 3D 预览 + STEP 装配体 (可在 SolidWorks 等 CAD 中打开作设计参考) + 干涉检查.
 - 多方案对比与推荐, BOM 与成本估算, 方案说明书/评审 PPT 的技术内容.
 
 Not for: detailed part drawings and GD&T, PLC programs, electrical schematics. For those, provide interface data (key dimensions, IO list, sensor list) and stop there.
@@ -27,13 +28,18 @@ Not for: detailed part drawings and GD&T, PLC programs, electrical schematics. F
 | `references/cycle-time.md` | 节拍公式、同步/异步、动作分解、典型动作时间、CSV 语法、提速手段. |
 | `references/design-review-checklist.md` | 评审检查表 (精度链、安全、防错、维护、成本、磁性) 和简化 FMEA 表. |
 | `references/scheme-document-template.md` | 方案说明书结构、机构说明模板、BOM 表、一页纸汇报、评审 PPT、布局草图. |
+| `references/layout-3d.md` | 3D 概念布局: JSON 格式、坐标约定、组件库 (参数/锚点)、检查项、布置技巧、CAD 中的用法. Read before Step 6. |
 | `scripts/mech_calc.py` | 选型计算: `cylinder vacuum screw belt rotary indexer guide move safety`. |
 | `scripts/cycle_time.py` | 动作表 CSV → CT、关键路径、机构负荷、UPH、余量、ASCII/SVG 甘特图. |
 | `scripts/scheme_score.py` | 加权评分 CSV → 排名、一票否决、权重敏感性. |
+| `scripts/layout3d.py` | 布局 JSON → 交互式 3D 预览 HTML、STEP 装配体、STL、组件清单, 并做静态/取放运动干涉检查. `--types` 列出组件库. |
 | `assets/cycle_example_magnet_ring.csv` | 6 工位磁环表磁全检机动作表样例. |
 | `assets/scoring_example.csv` | 磁环上料方案加权评分样例. |
+| `assets/layout_example_magnet_ring.json` | 6 工位转盘磁环表磁全检机 3D 布局样例 (与上面的节拍样例对应). |
+| `assets/layout_example_wheel_test.json` | 直线式滚轮模组手感测试工作站 3D 布局样例 (穿梭模组、模组取放、皮带线). |
+| `assets/vendor/three.min.js` | three.js r149 (MIT, `three.LICENSE`), 内嵌到 3D 预览中以便离线打开. |
 
-Scripts need Python 3.8+ and no third-party packages. Paths below are relative to this skill folder; from the repository root use `.codex/skills/automation-mechanism/scripts/...`. Every script supports `-h`, `--json`, and `--out <file>` (UTF-8). Input CSVs may be UTF-8 or GBK (Excel default on Chinese Windows).
+Scripts need Python 3.8+ and no third-party packages. Paths below are relative to this skill folder; from the repository root use `.codex/skills/automation-mechanism/scripts/...`. Every script supports `-h` and `--out <file>` (UTF-8); the calculation scripts also support `--json`. Input CSVs may be UTF-8 or GBK (Excel default on Chinese Windows).
 
 ## Workflow
 
@@ -69,7 +75,16 @@ python3 scripts/mech_calc.py safety --curtain-ms 15 --control-ms 20 --stop-ms 12
 
 Put the result tables in the scheme. Resolve every `[NG]`, and either resolve or carry forward every `[注意]`. Results are preliminary: say so, and name what must be confirmed with the vendor catalog (额定推力/扭矩、允许动能、允许惯量比、T-N 曲线、许用张力). Once a brand and model are chosen, re-run with `--motor-rated-torque/--motor-inertia`.
 
-### 6. Prove the cycle time (节拍核算)
+### 6. Build the 3D concept layout (3D 概念布局)
+Read `references/layout-3d.md`, copy the closer sample from `assets/`, and describe the machine as standard components connected by anchors (取放 `from/to` → 供料出口和工位, 探头/相机 `target` → 工位). Use the sizes from Step 5 so the 3D matches the calculations, then:
+
+```bash
+python3 scripts/layout3d.py layout.json --html layout.html --step layout.step --bom layout_bom.csv
+```
+
+Fix every `[注意]` clash (static or motion envelope) by moving components or changing `side`/`post_side`/`post_at`/`post_dir`/`arm`; add `touch` only for intended contact. Re-run until the check is clean, then feed the reported strokes (取放 X/Z 行程) back into Step 5. Deliver the HTML (offline viewer, screenshots for PPT) and the STEP assembly (opens in SolidWorks/Creo/NX as one part per component).
+
+### 7. Prove the cycle time (节拍核算)
 Write the action table as CSV (syntax in `references/cycle-time.md`, full sample in `assets/`), then:
 
 ```bash
@@ -78,26 +93,36 @@ python3 scripts/cycle_time.py actions.csv --target-uph 1800 --oee 0.85 --svg gan
 
 Use `--mode async` for buffered lines and `--pcs 2` for multi-cavity fixtures. Report CT, UPH, margin, critical path and bottleneck mechanism. Target margin ≥ 10%; if short, apply the speed-up methods in `cycle-time.md` §6, re-run, and show before/after.
 
-### 7. Review risks and error-proofing (风险评审)
+### 8. Review risks and error-proofing (风险评审)
 Walk `references/design-review-checklist.md` and output a `风险与对策` table for the open items only. For measuring/inspection machines always cover measurement repeatability (GR&R), the 基准设备相关性 method, and fail-safe NG handling.
 
-### 8. Compare schemes and recommend (方案对比)
+### 9. Compare schemes and recommend (方案对比)
 When there are 2+ viable schemes, build a scoring CSV (sample in `assets/`) and run:
 
 ```bash
 python3 scripts/scheme_score.py scoring.csv
 ```
 
-Use `veto` rows for hard requirements. Justify each score with data from steps 5–7, not preference. Report the winner, the point gap, and whether the ranking is weight-sensitive.
+Use `veto` rows for hard requirements. Justify each score with data from steps 5–8, not preference. Report the winner, the point gap, and whether the ranking is weight-sensitive.
 
-### 9. BOM and cost (BOM 与成本)
+### 10. BOM and cost (BOM 与成本)
 List key purchased parts by module (型号规格、品牌、数量、单价) plus machined parts, electrical and a 10%–15% contingency, using template §C. Mark every price as 报价 / 估算 / 历史价, and flag long-lead items.
 
-### 10. Deliver (输出)
+### 11. Deliver (输出)
 Follow `references/scheme-document-template.md`. The default in chat is a Markdown scheme. When the user wants files, combine with:
 - `docx` + `office-report` for 方案说明书;
 - `xlsx` for 选型计算书 / 节拍表 / BOM (inputs on a `参数` sheet, formulas kept live);
 - `pptx` for 方案评审 PPT (布局、节拍甘特、对比、风险、结论).
+
+## Quick 3D path (快速 3D 方案)
+
+When the user mainly wants a 3D scheme fast ("帮我快速出个 3D 方案"), do a compressed pass instead of the full workflow:
+1. Step 1 with defaults: ask at most the blockers, otherwise assume and list assumptions.
+2. Steps 3–4 briefly: layout form + one mechanism per station, as a short table.
+3. Step 5 only for the parts that set geometry (转盘直径, 气缸缸径/行程, 模组行程, 吸盘).
+4. Step 6: build the layout JSON, run `layout3d.py`, iterate until no clash.
+5. Step 7 if a target UPH is given.
+6. Deliver: 轴测 + 俯视 screenshots (or the HTML), STEP, component table with key parameters, assumptions, and 待确认事项. State that it is a block-level concept for layout and space checks, not a detailed design.
 
 ## Engineering rules of thumb
 
@@ -115,7 +140,7 @@ Follow `references/scheme-document-template.md`. The default in chat is a Markdo
 Conclusion first, then:
 1. 结论: 推荐方案 + CT/UPH 及余量 + 关键精度 + 预算区间 (if known).
 2. 假设条件表.
-3. 工艺流程 + 布局草图.
+3. 工艺流程 + 布局草图 (有 3D 时附截图和 HTML/STEP 文件).
 4. 机构方案表: 工位 | 功能 | 机构/驱动 | 关键参数 | 选型依据.
 5. 关键选型计算 (script result tables, condensed).
 6. 节拍分析 (CT, critical path, Gantt).

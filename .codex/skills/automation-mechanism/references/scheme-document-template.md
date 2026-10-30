@@ -1,6 +1,6 @@
 # 机构方案输出模板
 
-Use in Step 10. In chat, output Markdown in this order. For a Word document, use the same chapters with the `docx` and `office-report` skills; for slides, use the "一页纸" and "评审 PPT" structures with the `pptx` skill; put calculations, cycle table and BOM in an `xlsx` workbook with inputs on a `参数` sheet.
+Use in Step 11. In chat, output Markdown in this order. For a Word document, use the same chapters with the `docx` and `office-report` skills; for slides, use the "一页纸" and "评审 PPT" structures with the `pptx` skill; put calculations, cycle table and BOM in an `xlsx` workbook with inputs on a `参数` sheet.
 
 ## A. 方案说明书结构
 
@@ -8,7 +8,7 @@ Use in Step 10. In chat, output Markdown in this order. For a Word document, use
 2. **项目概述**: 产品、工序、产能目标、关键指标.
 3. **需求与假设条件**: 表格, 区分 "已确认" 和 "假设".
 4. **工艺流程**: 流程图 + 动作表.
-5. **总体布局**: 俯视草图、外形尺寸、工位分布、物流方向、操作侧、OK/NG 出口.
+5. **总体布局**: 3D 概念布局截图 (轴测 + 俯视)、外形尺寸、工位分布、物流方向、操作侧、OK/NG 出口; 附 HTML 预览和 STEP 文件.
 6. **关键机构说明**: 每个机构一节, 用 B 模板.
 7. **选型计算书**: `mech_calc.py` 结果表, 注明安全系数和待样本复核项.
 8. **节拍分析**: CT、UPH、余量、关键路径、甘特图、瓶颈与提速措施.
@@ -58,7 +58,7 @@ Rules: 价格来源必须标注 (报价/估算/历史价); 长周期件在备注
 
 1. 标题页 (结论式副标题)
 2. 需求与目标 (产能、精度、检测项)
-3. 总体布局图
+3. 总体布局图 (3D 轴测 + 俯视截图)
 4. 工艺流程与工位分配
 5. 关键机构 (每个关键机构 1 页: 结构图 + 参数 + 选型依据)
 6. 节拍甘特图与瓶颈
@@ -69,7 +69,7 @@ Rules: 价格来源必须标注 (报价/估算/历史价); 长周期件在备注
 
 ## F. 布局草图写法
 
-Without CAD, give a top view in ASCII or Mermaid, with material flow and operator side:
+Preferred: the 3D concept layout from `scripts/layout3d.py` (see `layout-3d.md`): 轴测截图 for the overview, 俯视 + 平行投影 截图 as the layout drawing, plus the HTML and STEP files. When no files can be produced, give a top view in ASCII or Mermaid, with material flow and operator side:
 
 ```text
                  [S2 定位]

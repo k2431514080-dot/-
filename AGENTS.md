@@ -19,7 +19,7 @@ Use these skills by file type and task:
   Use together with docx/xlsx/pptx when the task is a Chinese engineering/business report, weekly report, cost analysis report, project closing report, supplier/customer communication document, or manager-facing summary.
 
 - `.codex/skills/automation-mechanism/SKILL.md`  
-  Use for non-standard automation equipment mechanism schemes (非标自动化机构方案): process/action decomposition, mechanism selection, cylinder/vacuum/ball-screw/belt/servo/rotary table/cam indexer/linear guide sizing, cycle time and UPH, risk review, scheme comparison, BOM/cost, and full-inspection/assembly/test machine proposals. Combine with docx/xlsx/pptx/office-report when the scheme must be delivered as an Office file.
+  Use for non-standard automation equipment mechanism schemes (非标自动化机构方案): process/action decomposition, mechanism selection, cylinder/vacuum/ball-screw/belt/servo/rotary table/cam indexer/linear guide sizing, cycle time and UPH, quick 3D concept layouts (interactive HTML viewer + STEP assembly for CAD), risk review, scheme comparison, BOM/cost, and full-inspection/assembly/test machine proposals. Combine with docx/xlsx/pptx/office-report when the scheme must be delivered as an Office file.
 
 - `.codex/skills/office-documents/SKILL.md`  
   Legacy combined Office skill. Use only as a fallback if a task spans Word, Excel, and PowerPoint and no more specific skill is enough.
@@ -39,7 +39,8 @@ Use these skills by file type and task:
 
 1. Size every load-bearing or cycle-critical component with `.codex/skills/automation-mechanism/scripts/mech_calc.py`; do not size by feel.
 2. Prove cycle time with `scripts/cycle_time.py` and keep at least 10% margin against the target UPH.
-3. State assumptions explicitly and separate confirmed data from estimates; script results are preliminary until checked against vendor catalogs.
+3. Build 3D concept layouts with `scripts/layout3d.py` and fix every reported clash before delivering the HTML viewer and STEP file.
+4. State assumptions explicitly and separate confirmed data from estimates; script results are preliminary until checked against vendor catalogs.
 
 ## User style preference
 

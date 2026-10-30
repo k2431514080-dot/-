@@ -1,12 +1,13 @@
 # 机构方案评审检查表
 
-Use in Step 7 and whenever the user asks to review an existing scheme. Go through every section; report only the items that are open or risky, as a `风险与对策` table. Do not paste the whole checklist into the answer.
+Use in Step 8 and whenever the user asks to review an existing scheme. Go through every section; report only the items that are open or risky, as a `风险与对策` table. Do not paste the whole checklist into the answer.
 
 ## 1. 功能与工艺
 - [ ] 每个工序都有对应机构, 动作表无遗漏 (上料、定位、作业、检测、下料、NG 处理)
 - [ ] 来料异常 (尺寸超差、毛刺、粘连、方向错) 的处理方式明确
 - [ ] 换型内容与时间明确 (换哪些零件、是否需要重新标定)
 - [ ] 检测工位与冲击工位错开, 或时序上避开
+- [ ] 3D 概念布局 (`layout3d.py`) 无静态干涉和取放运动干涉; 未检查的运动 (气缸推块、模组滑台、转盘扫掠) 已人工确认
 
 ## 2. 精度链
 - [ ] 定位基准与产品图纸基准一致
