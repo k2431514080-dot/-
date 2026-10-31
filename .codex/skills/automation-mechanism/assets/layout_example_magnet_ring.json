@@ -7,7 +7,7 @@
     {"id": "guard", "type": "enclosure", "name": "防护罩", "size": [1000, 800, 900], "open_front": true},
 
     {"id": "tt", "type": "turntable", "name": "6工位DD转盘", "at": [0, 60], "dia": 400, "height": 150,
-     "stations": 6, "fixture_radius": 160, "fixture": {"d": 10, "h": 20}, "drive": "dd",
+     "stations": 6, "fixture_radius": 160, "fixture": {"d": 10, "h": 20, "pilot": {"d": 5.9, "h": 1.5}}, "drive": "dd",
      "start_angle": -90, "product": {"shape": "ring", "od": 12, "id": 6, "h": 3},
      "center_plate": {"d": 220}},
 
@@ -17,8 +17,8 @@
      "z_stroke": 30, "post_side": "right", "side": 100, "center": "tt.center",
      "x_speed": 1000, "z_speed": 600},
 
-    {"id": "locate", "type": "cylinder_actuator", "name": "S2 侧推定位", "bore": 10, "stroke": 15,
-     "tip": {"ref": "tt.S2", "out": 6, "up": -1.5}, "toward": "tt.center"},
+    {"id": "clean", "type": "tool", "name": "S2 吹气清洁 + 有无检测", "target": "tt.S2", "size": [30, 30, 60],
+     "gap": 20, "center": "tt.center"},
 
     {"id": "hall", "type": "probe", "name": "S3 霍尔探头", "bore": 10, "stroke": 10,
      "tip": {"ref": "tt.S3", "out": 6.5, "up": -1.5}, "toward": "tt.center"},
@@ -37,13 +37,11 @@
     {"id": "ok_bin", "type": "bin", "name": "OK 料盒", "at": [-430, 100],
      "size": [120, 120, 60], "color": "#37b24d", "touch": ["ok_chute"]},
 
-    {"id": "ng_push", "type": "cylinder_actuator", "name": "S6 NG 剔除气缸", "bore": 12, "stroke": 50,
-     "tip": {"ref": "tt.S6", "out": 40, "up": -1}, "toward": {"ref": "tt.S6", "out": 200},
-     "head_size": [10, 16, 3], "support": "none"},
     {"id": "ng_chute", "type": "chute", "name": "S6 NG 滑道",
-     "from": {"ref": "tt.S6", "out": 32, "up": -6}, "to": {"ref": "tt.S6", "out": 150, "up": -66},
-     "width": 20, "touch": ["tt"]},
-    {"id": "ng_bin", "type": "bin", "name": "NG 料盒 (带锁)", "at": {"ref": "tt.S6", "out": 186, "up": -173},
+     "from": {"ref": "tt.S6", "out": 130, "up": -23}, "to": [-430, -170, 65], "width": 20},
+    {"id": "ng_pick", "type": "pick_place", "name": "S6 NG 吸取剔除", "from": "tt.S6", "to": "ng_chute.in",
+     "z_stroke": 30, "post_side": "right", "center": "tt.center", "x_speed": 500, "z_speed": 400},
+    {"id": "ng_bin", "type": "bin", "name": "NG 料盒 (带锁)", "at": [-430, -170],
      "size": [120, 120, 60], "share": 0.02, "touch": ["ng_chute"]},
 
     {"id": "curtain", "type": "light_curtain", "name": "前侧安全光栅", "at": [0, -395], "span": 800,

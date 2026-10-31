@@ -1,0 +1,42 @@
+{
+  "title": "磁环表磁全检机",
+  "target_uph": 1800,
+  "oee": 0.85,
+  "pcs": 1,
+  "margin_min": 0.10,
+  "layout": "layout_example_magnet_ring.json",
+  "cycle": "cycle_example_magnet_ring.csv",
+  "cycle_mode": "sync",
+  "links": [
+    {"layout": "load", "resource": "凸轮取放", "note": "凸轮取放的升降和平移动作重叠, 0.8 s/循环取自供应商标准循环, 需规格书确认"},
+    {"layout": "unload", "resource": "下料手", "note": "放料端在抬起位直接放料, 省去两次 Z 动作; 落料崩边须试验"},
+    {"layout": "ng_pick", "resource": "NG手", "note": "同 S5: 抬起位放料"}
+  ],
+  "calcs": [
+    {"name": "DD 转盘", "cmd": "rotary --stations 6 --index-time 0.4 --cycle-time 1.4 --table-dia 400 --table-thk 15 --fixture-mass 0.05 --fixture-radius 160 --accuracy-arcsec 10"},
+    {"name": "S5/S6 Z 滑台气缸", "cmd": "cylinder --mass 0.6 --mode vertical --stroke 55 --speed 400", "selected_bore": 10},
+    {"name": "S5/S6 X 无杆气缸", "cmd": "cylinder --mass 1.2 --stroke 130 --speed 500 --mu 0.05", "selected_bore": 16},
+    {"name": "磁环吸盘", "cmd": "vacuum --mass 0.002 --accel 10 --max-cup 3", "selected_cup": 2},
+    {"name": "S1 推料气缸", "cmd": "cylinder --mass 0.05 --stroke 42 --speed 200 --mu 0.3", "selected_bore": 10},
+    {"name": "前侧安全光栅", "cmd": "safety --curtain-ms 10 --control-ms 15 --stop-ms 40 --resolution 14"}
+  ],
+  "assumptions": [
+    {"item": "目标产能 1,800 UPH", "status": "已确认"},
+    {"item": "磁环重量约 2 g", "status": "假设", "verify": "样品称重 (影响吸盘和气缸选型, 余量充足)"},
+    {"item": "综合效率 OEE 0.85 (含约每 35 min 一次补料/倒料暂停)", "status": "假设", "verify": "试产统计稼动率"},
+    {"item": "安全光栅系统停止时间 ≤ 40 ms", "status": "待实测", "verify": "样机上实测停止时间, 超过时外移光栅或加护栏"},
+    {"item": "气缸速度 X 500 / Z 400 mm/s (带液压缓冲器)", "status": "假设", "verify": "样机实测动作时间并回填节拍表"},
+    {"item": "供应商可按料管出货", "status": "待确认", "verify": "采购与供应商确认包装方式"}
+  ],
+  "accepted": [
+    {"match": "需人工补料/倒料的位置在防护区内", "reason": "每约 35 min 暂停约 1 min, 已计入 OEE 0.85; 二期再改门外补料口"}
+  ],
+  "tests": [
+    {"item": "表磁测量 GR&R (固定位置 + 随机取放) ≤ 10%", "covers": ["测量能力"], "when": "样机阶段"},
+    {"item": "定位方案评审: 内孔定位销 + 顶部压紧旋转, 无侧推; NG 吸取剔除", "covers": ["定位方案"], "when": "详细设计评审"},
+    {"item": "50 mm 落料崩边试验 1,000 片 (简易滑道)", "covers": ["产品损伤"], "when": "详细设计前"},
+    {"item": "取放立柱和中心固定盘刚性按经验/FEA 校核", "covers": ["结构刚性"], "when": "详细设计"},
+    {"item": "凸轮取放 0.8 s/循环、DD 马达扭矩/惯量: 供应商规格书确认", "covers": ["供应商数据"], "when": "询价阶段"},
+    {"item": "气管线缆走向、拖链和易损件更换空间检查", "covers": ["线缆与维护"], "when": "详细设计"}
+  ]
+}

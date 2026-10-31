@@ -7,6 +7,15 @@ description: Use this skill when Codex needs to design, select, size, review, co
 
 Turn a product + process requirement into a buildable mechanism scheme: every action has a mechanism, every key component has a sizing calculation, the cycle time is proven, risks are explicit, and a manager can read the recommendation in 30 seconds.
 
+## Feasibility rules (不可违反)
+
+The user will draw and build from this scheme, so an infeasible scheme presented as feasible is the worst possible outcome.
+1. Before delivering any scheme, run the feasibility gate (Step 11). The 结论 must state its verdict word for word: 可行 / 有条件可行 / 评估未完成 / 不可行.
+2. Never call a scheme 可行 unless the gate says 可行. 有条件可行 must list every condition and how it will be verified; 不可行 must not be delivered as a recommendation.
+3. Never present an estimate, an assumption or a supplier figure as a fact (e.g. a cam pick-and-place cycle, a robot cycle, a DD torque). Mark it 估算 / 假设 / 待供应商确认.
+4. Check the mechanism logic, not only the numbers: how the product is located, held, moved and removed at each station (over-constraint, a part on a locating pin cannot be pushed sideways, what holds it during rotation). The scripts cannot see this; it must be stated in the scheme and covered by the gate's 定位方案 review.
+5. When a requirement cannot be met (节拍、精度、空间), say so and give options; do not bend numbers to make it pass.
+
 ## When to use
 
 - 新设备/新工站机构方案构思: 全检机、组装机、测试机、上下料机、分拣/包装机.
@@ -29,15 +38,18 @@ Not for: detailed part drawings and GD&T, PLC programs, electrical schematics. F
 | `references/design-review-checklist.md` | 评审检查表 (精度链、安全、防错、维护、成本、磁性) 和简化 FMEA 表. |
 | `references/scheme-document-template.md` | 方案说明书结构、机构说明模板、BOM 表、一页纸汇报、评审 PPT、布局草图. |
 | `references/layout-3d.md` | 3D 概念布局: JSON 格式、坐标约定、组件库 (参数/锚点)、检查项、布置技巧、CAD 中的用法. Read before Step 6. |
+| `references/feasibility.md` | 可行性判定: 项目文件格式、四档结论的规则、怎么处理条件和无法计算项. Read before Step 11. |
 | `scripts/mech_calc.py` | 选型计算: `cylinder vacuum gripper screw belt rotary indexer guide move conveyor safety`. |
 | `scripts/cycle_time.py` | 动作表 CSV → CT、关键路径、机构负荷、UPH、余量、ASCII/SVG 甘特图. |
 | `scripts/scheme_score.py` | 加权评分 CSV → 排名、一票否决、权重敏感性. |
 | `scripts/layout3d.py` | 布局 JSON → 交互式 3D 预览 HTML、STEP 装配体、STL、组件清单, 并做静态干涉、运动包络干涉、光栅距离、参数拼写检查. `--types` 列出组件库. |
+| `scripts/feasibility.py` | 可行性判定 (出图前闸门): 项目文件 → 一次跑完布局、节拍、选型、一致性、假设、验证计划, 给出唯一结论和出图前必须完成的清单. |
 | `scripts/selftest.py` | 自检: 手算校核值、样例结果、STEP 结构、必须报出的错误. 修改任何脚本后运行, 必须全部通过. |
 | `assets/cycle_example_magnet_ring.csv` | 6 工位磁环表磁全检机动作表样例. |
 | `assets/scoring_example.csv` | 磁环上料方案加权评分样例. |
 | `assets/layout_example_magnet_ring.json` | 6 工位转盘磁环表磁全检机 3D 布局样例 (与上面的节拍样例对应). |
 | `assets/layout_example_wheel_test.json` | 直线式滚轮模组手感测试工作站 3D 布局样例 (穿梭模组、模组取放、皮带线). |
+| `assets/project_magnet_ring.json` | 可行性判定项目文件样例 (链接布局、节拍表、6 项选型计算、假设、验证计划), 结论为有条件可行. |
 | `assets/example_scheme_magnet_ring.md` | 完整方案输出样例 (结论、假设、机构表、计算、节拍、风险、IO、待确认), 数值全部来自脚本. Read once before writing a full scheme to match its depth and wording. |
 | `assets/vendor/three.min.js` | three.js r149 (MIT, `three.LICENSE`), 内嵌到 3D 预览中以便离线打开. |
 
@@ -112,7 +124,19 @@ Use `veto` rows for hard requirements. Justify each score with data from steps 5
 ### 10. BOM and cost (BOM 与成本)
 Start from the `layout3d.py` IO / 外购件 table (or the `--bom` CSV): it gives DI/DO/servo/safety counts for controller selection and the main purchased items per component. List key purchased parts by module (型号规格、品牌、数量、单价) plus machined parts, electrical and a 10%–15% contingency, using template §C. Mark every price as 报价 / 估算 / 历史价, and flag long-lead items.
 
-### 11. Deliver (输出)
+### 11. Feasibility gate (可行性判定, 必做)
+Read `references/feasibility.md`. Write a project file (sample `assets/project_magnet_ring.json`) that links the layout, the cycle table, every Step 5 calculation (with the size actually selected), the assumptions with their status, links between pick-and-place components and cycle-table resources, and a test plan for every item the tools cannot compute (定位方案、产品损伤、结构刚性、供应商数据、线缆与维护, plus 测量能力 for inspection machines). Then:
+
+```bash
+python3 scripts/feasibility.py project.json --out 可行性判定.md
+```
+
+- 不可行: fix the design and re-run; never deliver it as the recommendation.
+- 评估未完成: add the missing test plans; do not claim feasibility.
+- 有条件可行: deliver with the full condition list in 结论 and 待确认事项.
+- 可行: only after assumptions are confirmed and tests passed (usually after prototype); still say it covers what the tools compute.
+
+### 12. Deliver (输出)
 Follow `references/scheme-document-template.md`. The default in chat is a Markdown scheme. When the user wants files, combine with:
 - `docx` + `office-report` for 方案说明书;
 - `xlsx` for 选型计算书 / 节拍表 / BOM (inputs on a `参数` sheet, formulas kept live);
@@ -126,12 +150,14 @@ When the user mainly wants a 3D scheme fast ("帮我快速出个 3D 方案"), do
 3. Step 5 only for the parts that set geometry (转盘直径, 气缸缸径/行程, 模组行程, 吸盘).
 4. Step 6: build the layout JSON, run `layout3d.py`, iterate until no clash.
 5. Step 7 if a target UPH is given.
-6. Deliver: 轴测 + 俯视 PNG (`--png`) with the 图号 table, the HTML and STEP, component table with key parameters, assumptions, and 待确认事项. State that it is a block-level concept for layout and space checks, not a detailed design.
+6. Step 11 feasibility gate with whatever exists (layout, cycle, key calcs, assumptions, tests); the verdict goes in the first line of the answer.
+7. Deliver: 轴测 + 俯视 PNG (`--png`) with the 图号 table, the HTML and STEP, component table with key parameters, assumptions, and 待确认事项. State that it is a block-level concept for layout and space checks, not a detailed design.
 
 ## Engineering rules of thumb
 
 - 两点动作、负载小、精度 ≥ ±0.05 mm → 气缸 + 硬限位 + 缓冲; 多点/可调/≤ ±0.02 mm → 伺服丝杠模组; 行程 > 1 m 或高速 → 同步带模组/直线电机.
-- 精度由定位元件 (销、V 块、硬限位、芯轴) 保证, 驱动元件只负责送到位.
+- 精度由定位元件 (销、V 块、硬限位、芯轴) 保证, 驱动元件只负责送到位; 一个自由度只用一个定位元件 (内孔定位销 + 侧推 V 块 = 过定位).
+- 产品套在定位销/芯轴上时只能垂直取出, 不能侧推剔除.
 - 气缸按 0.4 MPa 计算, 负载率: 静 ≤ 0.7, 动 ≤ 0.5, 高速 (> 500 mm/s) ≤ 0.3.
 - 伺服: 连续扭矩安全系数 1.5, 惯量比 ≤ 10 (高响应 ≤ 5), 常用转速不超过额定转速.
 - 垂直轴和夹紧: 写明断电/断气后的状态 (抱闸、单向阀、锁紧气缸、弹簧).
@@ -142,7 +168,7 @@ When the user mainly wants a 3D scheme fast ("帮我快速出个 3D 方案"), do
 ## Output format (chat)
 
 Conclusion first, then:
-1. 结论: 推荐方案 + CT/UPH 及余量 + 关键精度 + 预算区间 (if known).
+1. 结论: 可行性判定结论 (原文) + 推荐方案 + CT/UPH 及余量 + 关键精度 + 预算区间 (if known); 有条件可行时列出关键条件.
 2. 假设条件表.
 3. 工艺流程 + 布局草图 (有 3D 时附截图和 HTML/STEP 文件).
 4. 机构方案表: 工位 | 功能 | 机构/驱动 | 关键参数 | 选型依据.

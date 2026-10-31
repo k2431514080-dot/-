@@ -92,7 +92,7 @@ Samples: `assets/layout_example_magnet_ring.json` (6 工位转盘全检机), `as
 ### 运动与执行
 | type | 参数 | 锚点 | 说明 |
 |---|---|---|---|
-| `turntable` 转盘 | `dia` (400), `thk` (15), `height` 盘面高 (150), `stations` (6), `fixture_radius` (0.4×dia), `fixture` {d, h} ({40, 20}), `drive` dd / indexer / servo, `start_angle` S1 角度 (−90 = 正前方), `direction` ccw / cw, `product`, `center_plate` {d, z} | S1…Sn (产品顶面中心, 无产品时为治具顶面), center, plate | 中心固定盘用于安装伸向工位的推料/探头 (配合 `support: none`) |
+| `turntable` 转盘 | `dia` (400), `thk` (15), `height` 盘面高 (150), `stations` (6), `fixture_radius` (0.4×dia), `fixture` {d, h, pilot {d, h}} ({40, 20}; `pilot` = 插入产品内孔的定位销, 会参与运动干涉检查), `drive` dd / indexer / servo, `start_angle` S1 角度 (−90 = 正前方), `direction` ccw / cw, `product`, `center_plate` {d, z} | S1…Sn (产品顶面中心, 无产品时为治具顶面), center, plate | 中心固定盘用于安装伸向工位的推料/探头 (配合 `support: none`) |
 | `linear_module` 直线模组 | `stroke` (300), `width` (80), `height` (60), `pos` 0~1 滑台位置 (0), `vertical`, `payload` [长, 宽, 高] 滑台负载包络 | carriage, start, end (滑台顶面) | 本体沿局部 +X; 料盘、治具放在 `id.carriage`; 给 `payload` 时检查负载在整个行程内的干涉 (装在滑台上的组件自动豁免) |
 | `pick_place` 取放机构 | `from`, `to` (工作点 = 产品顶面), `z_stroke` 抬起高度 (30), `drive` cylinder / module, `side` 横梁偏置 (90), `post_side` auto / left / right, `post_at` auto / start / end, `margin` (60), `nozzle_len` (50), `pos` 0~1, `center` (判断"外侧"的中心, 默认原点), `x_speed` / `z_speed` 时间估算用速度 mm/s (气缸 300/200, 模组 800/400) | pick, place, up | 自动生成立柱、横梁、滑块、Z 轴、吸嘴和运动包络; 报告 X 行程、所需 Z 行程、单程和循环时间估算. 估算按取放两端都下降; 抬起位直接放料时在节拍表中减掉 |
 | `cylinder_actuator` 气缸 | `tip` 伸出到位时推块前端, `toward` 推向的点 或 `dir` 方向°, `bore` (16), `stroke` (20), `head` block / probe / none, `head_size` [长, 宽, 高] ([10, 20, 15]), `support` down / none | tip, retracted | 侧推定位、NG 剔除、挡停; 推块须高于治具顶面 |
@@ -144,7 +144,8 @@ Not checked: cables and air hoses, maintenance access, linear modules without `p
 - 转盘机: `start_angle: -90` 让 S1 在操作者正前方, 工位逆时针编号; 转盘略向后放 (`at: [0, 60]`) 给前侧上料留空间.
 - 径向布置的推料/探头: `tip: {"ref": "tt.S2", "out": 产品半径, "up": -产品高/2}`, `toward: "tt.center"`.
 - 表磁、外径检测: 治具 (芯轴) 直径要小于产品外径, 否则径向探头会碰治具.
-- 推出式剔除: 推块高度要高于治具顶面, 用 `head_size` [长, 宽, 产品高] 做成薄推片; 推料气缸装在中心固定盘上 (`center_plate` + `support: none`).
+- 治具有定位销时一定写 `fixture.pilot`: 侧推剔除会和定位销产生运动干涉 (套在销上的产品推不出去), 改用 `pick_place` 吸取剔除.
+- 推出式剔除只用于平面治具: 推块高度要高于治具顶面, 用 `head_size` [长, 宽, 产品高] 做成薄推片; 推料气缸装在中心固定盘上 (`center_plate` + `support: none`).
 - 取放机构: 立柱默认在离中心较远的一端、远离中心的一侧; 冲突时依次试 `post_side`、`post_at`、加大 `side`; 两个取放机构的 X 轴同高时注意交叉.
 - 顶置设备 (相机/压头) 的立柱默认沿 "中心 → 目标" 方向向外; 同一工位有两个设备时, 用 `post_dir` 错开.
 - 报告配图: 用 `--png` 自动出轴测 + 俯视图, 正文附图号表; 需要标签的截图在 HTML 预览中按 "截图".

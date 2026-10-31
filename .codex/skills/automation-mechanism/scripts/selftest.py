@@ -21,6 +21,7 @@ ASSETS = os.path.join(HERE, "..", "assets")
 sys.path.insert(0, HERE)
 
 import cycle_time  # noqa: E402
+import feasibility  # noqa: E402
 import layout3d  # noqa: E402
 import mech_calc  # noqa: E402
 
@@ -158,7 +159,7 @@ def test_layout():
     spec = json.load(open(os.path.join(ASSETS, "layout_example_magnet_ring.json"), encoding="utf-8"))
     comps, _ = layout3d.build_layout(spec)
     tot = layout3d.io_summary(comps)[1]
-    check("IO 估算 磁环样例 38 DI / 19 DO / 2 伺服 / 5 安全", (tot["DI"], tot["DO"], tot["伺服轴"], tot["安全输入"]) == (38, 19, 2, 5),
+    check("IO 估算 磁环样例 40 DI / 22 DO / 2 伺服 / 5 安全", (tot["DI"], tot["DO"], tot["伺服轴"], tot["安全输入"]) == (40, 22, 2, 5),
           str(tot))
     one = {"uph": 1800, "components": [{"id": "m", "type": "magazine", "tube_h": 300,
                                          "product": {"shape": "ring", "od": 12, "id": 6, "h": 3}}]}
@@ -185,10 +186,55 @@ def test_layout():
         check("拒绝: 非法枚举值 drive=servo", True)
 
 
+def test_feasibility():
+    import copy
+    tmp = tempfile.mkdtemp()
+    P = json.load(open(os.path.join(ASSETS, "project_magnet_ring.json"), encoding="utf-8"))
+    L = json.load(open(os.path.join(ASSETS, "layout_example_magnet_ring.json"), encoding="utf-8"))
+    csv_text = open(os.path.join(ASSETS, "cycle_example_magnet_ring.csv"), encoding="utf-8").read()
+
+    def run(name, proj, layout=L, csv=csv_text):
+        proj = copy.deepcopy(proj)
+        json.dump(layout, open(os.path.join(tmp, name + "_l.json"), "w", encoding="utf-8"), ensure_ascii=False)
+        open(os.path.join(tmp, name + ".csv"), "w", encoding="utf-8").write(csv)
+        proj["layout"], proj["cycle"] = name + "_l.json", name + ".csv"
+        path = os.path.join(tmp, name + ".json")
+        json.dump(proj, open(path, "w", encoding="utf-8"), ensure_ascii=False)
+        with redirect_stdout(io.StringIO()):
+            return feasibility.main([path])
+
+    check("可行性: 磁环样例 = 有条件可行", run("ok", P) == 1)
+    lay = copy.deepcopy(L)
+    lay["components"] = [c for c in lay["components"] if c["id"] != "ng_pick"]
+    lay["components"].append({"id": "ng_push", "type": "cylinder_actuator", "bore": 12, "stroke": 50,
+                              "tip": {"ref": "tt.S6", "out": 40, "up": -1}, "toward": {"ref": "tt.S6", "out": 200},
+                              "head_size": [10, 16, 3], "support": "none"})
+    p1 = copy.deepcopy(P)
+    p1["links"] = [x for x in p1["links"] if x["layout"] != "ng_pick"]
+    check("可行性: 套在定位销上的产品侧推剔除 = 不可行", run("pusher", p1, layout=lay) == 3)
+    p2 = copy.deepcopy(P)
+    p2["calcs"][1]["selected_bore"] = 6
+    check("可行性: 选用缸径小于计算值 = 不可行", run("bore", p2) == 3)
+    p3 = copy.deepcopy(P)
+    p3["tests"] = []
+    check("可行性: 无法计算项没有验证计划 = 评估未完成", run("notests", p3) == 2)
+    lay4 = copy.deepcopy(L)
+    next(c for c in lay4["components"] if c["id"] == "curtain")["min_distance"] = 100
+    p4 = copy.deepcopy(P)
+    p4["calcs"][-1]["cmd"] = "safety --curtain-ms 10 --control-ms 15 --stop-ms 120 --resolution 14"
+    check("可行性: 布局光栅距离小于计算安全距离 = 不可行", run("curtain", p4, layout=lay4) == 3)
+    slow = csv_text.replace("M2,S3表磁,伺服旋转360°同步采样,0.60", "M2,S3表磁,伺服旋转360°同步采样,1.00")
+    check("可行性: 节拍不满足 = 不可行", run("slow", P, csv=slow) == 3)
+    p6 = copy.deepcopy(P)
+    p6["accepted"] = [{"match": "节拍余量", "reason": "强行接受"}]
+    check("可行性: 不可行项不能被 accepted 放行", run("accept", p6, csv=slow) == 3)
+
+
 def main():
     test_mech_calc()
     test_cycle_and_score()
     test_layout()
+    test_feasibility()
     print(f"\n{'全部通过' if not FAILS else f'{len(FAILS)} 项失败: ' + ', '.join(FAILS)}")
     return 1 if FAILS else 0
 

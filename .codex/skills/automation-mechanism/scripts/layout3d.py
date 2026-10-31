@@ -323,6 +323,9 @@ def b_turntable(c, P, b):
     R = num(c, "fixture_radius", 0.4 * dia)
     fx = c.get("fixture", {})
     fd, fh = float(fx.get("d", 40)), float(fx.get("h", 20))
+    pilot = fx.get("pilot")
+    if pilot:
+        pd, phh = float(pilot.get("d", 5)), float(pilot.get("h", 2))
     start = float(c.get("start_angle", -90))
     sgn = -1 if enum(c, "direction", ("ccw", "cw"), "ccw") == "cw" else 1
     drive = enum(c, "drive", ("dd", "indexer", "servo"), "dd")
@@ -357,6 +360,8 @@ def b_turntable(c, P, b):
         a = math.radians(start + sgn * 360.0 * i / n)
         x, y = R * math.cos(a), R * math.sin(a)
         b.cylz(f"治具S{i + 1}", x, y, H, H + fh, fd / 2, C["fixture"])
+        if pilot:
+            b.cylz(f"定位销S{i + 1}", x, y, H + fh, H + fh + phh, pd / 2, C["steel"])
         zt = H + fh
         if prod:
             ph, _ = product_parts(b, prod, x, y, zt, f"产品S{i + 1}")
@@ -387,9 +392,17 @@ def b_turntable(c, P, b):
         b.cylz("中心固定柱", 0, 0, H, cpz, 20, C["steel"])
         b.cylz("中心固定盘", 0, 0, cpz, cpz + 10, cpd / 2, C["alu"])
         b.anchors["plate"] = (0, 0, cpz + 10)
+    if pilot and prod:
+        if prod.get("shape", "ring") != "ring":
+            b.notes.append(("注意", "fixture.pilot (定位销) 只适用于带内孔的环形产品"))
+        elif pd >= float(prod["id"]):
+            b.notes.append(("NG", f"定位销 Φ{pd:g} ≥ 产品内孔 Φ{prod['id']:g}, 产品放不进去"))
+        elif phh > float(prod["h"]):
+            b.notes.append(("注意", f"定位销高 {phh:g} mm 超出产品厚度, 吸嘴/压头需避让"))
     if R + fd / 2 > dia / 2 - 5:
         b.notes.append(("注意", f"治具外缘超出转盘边缘 (R{R:g} + Φ{fd:g}/2 > Φ{dia:g}/2 - 5)"))
     b.params += [("转盘", f"Φ{dia:g} × {thk:g} mm"), ("工位数", f"{n}"), ("治具回转半径", f"R{R:g} mm"),
+                 ("治具", f"Φ{fd:g} × {fh:g}" + (f" + 定位销 Φ{pd:g} × {phh:g} (产品不能侧向推出)" if pilot else "")),
                  ("台面高度", f"{H:g} mm"), ("驱动", drive_cn)]
     if prod:
         b.params.append(("产品", product_fmt(prod)))
@@ -533,6 +546,7 @@ def b_pick_place(c, P, b):
     b.calc.append(f"mech_calc.py {'belt' if L > 600 else 'screw'} --mass <X轴移动质量kg> "
                   + ("--pulley-dia 30 " if L > 600 else "--lead 10 ") + f"--speed 800 --stroke {L:.0f}"
                   if mod else f"mech_calc.py cylinder --mass <X轴移动质量kg> --stroke {L:.0f} --speed 300")
+    b.meta.update({"loop_s": 4 * tz + 2 * tx + 0.2, "tx": tx, "tz": tz})
     b.calc.append(f"mech_calc.py screw --mass <Z轴移动质量kg> --lead 5 --speed 400 --stroke {z_need:.0f} --vertical"
                   if mod else f"mech_calc.py cylinder --mass <Z轴移动质量kg> --mode vertical --stroke {z_need:.0f} --speed 200")
     b.params += [("X 行程", f"{L:.1f} mm"), ("Z 行程", f"≥ {z_need:.1f} mm"),
@@ -920,7 +934,7 @@ CATALOG = {
     "enclosure": ("size [长,宽,高], profile, open_front", "top"),
     "box": ("size [x,y,z], color", "top"),
     "cylinder": ("d, h, axis z|x, color", "top"),
-    "turntable": ("dia, thk, height, stations, fixture_radius, fixture {d,h}, drive dd|indexer|servo, "
+    "turntable": ("dia, thk, height, stations, fixture_radius, fixture {d,h,pilot {d,h}}, drive dd|indexer|servo, "
                   "start_angle, direction ccw|cw, product, center_plate {d,z}", "S1..Sn center plate"),
     "linear_module": ("stroke, width, height, pos 0~1, vertical, payload [长,宽,高]", "carriage start end"),
     "pick_place": ("from, to, z_stroke, drive cylinder|module, side, post_side auto|left|right, "
