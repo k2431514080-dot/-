@@ -31,7 +31,7 @@
      "tip": {"ref": "conv.mid", "offset": [0, 40, 25]}, "dir": 90, "head_size": [10, 30, 15]},
     {"id": "ng_bin", "type": "bin", "name": "NG 料盒 (带锁)", "at": [350, -50], "size": [120, 100, 80]},
 
-    {"id": "curtain", "type": "light_curtain", "name": "前侧安全光栅", "at": [0, -385], "span": 1000,
+    {"id": "curtain", "type": "light_curtain", "name": "前侧安全光栅", "at": [0, -410], "span": 1000,
      "height": 600, "z0": 50},
     {"id": "hmi", "type": "hmi", "name": "触摸屏", "at": [625, -380, 520], "arm": 90, "touch": ["guard"]},
     {"id": "tower", "type": "tower_light", "name": "三色灯", "at": [-570, 370, 1000]}

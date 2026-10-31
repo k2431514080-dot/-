@@ -1,5 +1,7 @@
 {
   "title": "磁环表磁全检机 3D 概念布局",
+  "uph": 1800,
+  "product": {"shape": "ring", "od": 12, "id": 6, "h": 3},
   "components": [
     {"id": "frame", "type": "frame", "name": "机架", "size": [1000, 800, 850]},
     {"id": "guard", "type": "enclosure", "name": "防护罩", "size": [1000, 800, 900], "open_front": true},
@@ -9,10 +11,11 @@
      "start_angle": -90, "product": {"shape": "ring", "od": 12, "id": 6, "h": 3},
      "center_plate": {"d": 220}},
 
-    {"id": "feeder", "type": "magazine", "name": "S1 料管上料", "at": [-42, -200], "height": 150,
-     "tube_h": 300, "stroke": 42, "product": {"shape": "ring", "od": 12, "id": 6, "h": 3}},
-    {"id": "load", "type": "pick_place", "name": "S1 上料取放", "from": "feeder.out", "to": "tt.S1",
-     "z_stroke": 30, "post_side": "right", "side": 100, "center": "tt.center"},
+    {"id": "feeder", "type": "magazine", "name": "S1 料管上料 (8 管自动换管)", "at": [0, -247], "rot": 90,
+     "height": 150, "tube_h": 400, "tubes": 8, "stroke": 42, "product": {"shape": "ring", "od": 12, "id": 6, "h": 3}},
+    {"id": "load", "type": "pick_place", "name": "S1 凸轮取放", "from": "feeder.out", "to": "tt.S1",
+     "z_stroke": 30, "post_side": "right", "side": 100, "center": "tt.center",
+     "x_speed": 1000, "z_speed": 600},
 
     {"id": "locate", "type": "cylinder_actuator", "name": "S2 侧推定位", "bore": 10, "stroke": 15,
      "tip": {"ref": "tt.S2", "out": 6, "up": -1.5}, "toward": "tt.center"},
@@ -26,11 +29,12 @@
      "center": "tt.center", "fov": "20 × 15 mm"},
 
     {"id": "ok_chute", "type": "chute", "name": "S5 OK 滑道",
-     "from": {"ref": "tt.S5", "out": 130, "up": -23}, "to": {"ref": "tt.S5", "out": 230, "up": -93},
+     "from": {"ref": "tt.S5", "out": 130, "up": -23}, "to": [-430, 100, 65],
      "width": 20},
     {"id": "unload", "type": "pick_place", "name": "S5 下料取放", "from": "tt.S5", "to": "ok_chute.in",
-     "z_stroke": 30, "center": "tt.center"},
-    {"id": "ok_bin", "type": "bin", "name": "OK 料盒", "at": {"ref": "tt.S5", "out": 290, "up": -173},
+     "z_stroke": 30, "post_side": "right", "center": "tt.center",
+     "x_speed": 500, "z_speed": 400},
+    {"id": "ok_bin", "type": "bin", "name": "OK 料盒", "at": [-430, 100],
      "size": [120, 120, 60], "color": "#37b24d", "touch": ["ok_chute"]},
 
     {"id": "ng_push", "type": "cylinder_actuator", "name": "S6 NG 剔除气缸", "bore": 12, "stroke": 50,
@@ -39,11 +43,11 @@
     {"id": "ng_chute", "type": "chute", "name": "S6 NG 滑道",
      "from": {"ref": "tt.S6", "out": 32, "up": -6}, "to": {"ref": "tt.S6", "out": 150, "up": -66},
      "width": 20, "touch": ["tt"]},
-    {"id": "ng_bin", "type": "bin", "name": "NG 料盒 (带锁)", "at": {"ref": "tt.S6", "out": 200, "up": -173},
-     "size": [120, 120, 60], "touch": ["ng_chute"]},
+    {"id": "ng_bin", "type": "bin", "name": "NG 料盒 (带锁)", "at": {"ref": "tt.S6", "out": 186, "up": -173},
+     "size": [120, 120, 60], "share": 0.02, "touch": ["ng_chute"]},
 
-    {"id": "curtain", "type": "light_curtain", "name": "前侧安全光栅", "at": [0, -385], "span": 800,
-     "height": 600, "z0": 50},
+    {"id": "curtain", "type": "light_curtain", "name": "前侧安全光栅", "at": [0, -395], "span": 800,
+     "height": 600, "z0": 50, "min_distance": 130},
     {"id": "hmi", "type": "hmi", "name": "触摸屏", "at": [525, -380, 520], "arm": 90, "touch": ["guard"]},
     {"id": "tower", "type": "tower_light", "name": "三色灯", "at": [-470, 370, 900]}
   ]

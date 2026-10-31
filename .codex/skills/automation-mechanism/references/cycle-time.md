@@ -79,7 +79,7 @@ Run:
 
     python3 scripts/cycle_time.py actions.csv --target-uph 1800 --oee 0.85 --svg gantt.svg --csv-out schedule.csv
 
-Full sample: `assets/cycle_example_magnet_ring.csv` (6 工位磁环表磁全检机, CT 1.6 s, 瓶颈 = 上料手).
+Full sample: `assets/cycle_example_magnet_ring.csv` (6 工位磁环表磁全检机: 凸轮取放上料, 下料手返回与分度并行, CT 1.4 s, 瓶颈 = 表磁检测). The worked scheme `assets/example_scheme_magnet_ring.md` shows how it was reached from a 1.6 s first version.
 
 ## 6. 提速手段 (按代价从低到高)
 

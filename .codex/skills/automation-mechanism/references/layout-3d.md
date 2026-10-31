@@ -3,7 +3,7 @@
 Use when the user wants a quick 3D scheme of the machine, or when a mechanism scheme needs a 3D layout to review, screenshot, or open in CAD. The agent writes a layout JSON (a list of standard components), runs the script, fixes every reported clash, and delivers the files.
 
 ```bash
-python3 scripts/layout3d.py layout.json --html layout.html --step layout.step --bom layout_bom.csv
+python3 scripts/layout3d.py layout.json --html layout.html --step layout.step --png layout --bom layout_bom.csv
 python3 scripts/layout3d.py --types          # 组件类型、参数、锚点速查
 ```
 
@@ -15,9 +15,11 @@ Samples: `assets/layout_example_magnet_ring.json` (6 工位转盘全检机), `as
 |---|---|
 | `--html` | 交互式 3D 预览, 双击用浏览器打开. 旋转/平移/缩放, 点选组件看参数 (行程、缸径、位置), 俯视 + 平行投影 = 平面布局图, "截图" 按钮导出带标签的 PNG 放进 PPT/Word. 默认内嵌 three.js (约 650 KB, 可离线、可发邮件); `--cdn` 改为在线加载. |
 | `--step` | STEP AP214 装配体: 每个组件一个零件, 零件名 = `组件名 (id)`, 带颜色. 装配体原点 = 台面中心; 每个零件原点 = 该组件安装基准, 朝向随组件. 默认 `--up y` (Y 向上): 在 SolidWorks/Creo/Inventor 中正视图 = 操作者正面、上视图 = 俯视; NX/中望 3D 等 Z 向上软件用 `--up z`. `--step-flat` 输出单零件多实体. |
+| `--png 前缀` | 静态视图 PNG (默认 `--views iso,top` → `前缀_iso.png`、`前缀_top.png`), 纯 Python 渲染, 不需要浏览器, 可直接插入 Word/PPT. 默认只取景台面工作区 (`--png-fit all` 为整机), 不画防护罩/光栅/触摸屏/三色灯 (`--png-all` 全画). 图中气泡数字 = 报告 "图号对照" 表和 BOM 的图号. 1600 px 每张约 2~3 s. |
 | `--stl` | 整机网格, 给不读 STEP 的软件或渲染用. |
-| `--bom` | 组件清单 CSV (参数、位置、包络尺寸), 可交给 xlsx 技能整理. |
-| 终端报告 | 整机外形、组件关键参数 (取放机构含 X/Z 单程和取放循环时间估算, 可填进节拍表)、锚点坐标、布局检查结果, 以及每个运动组件的建议校核命令 (`mech_calc.py ...`, 把 `<>` 换成实际值后运行). |
+| `--bom` | 组件清单 CSV: 图号、参数、位置、包络尺寸、DI/DO/伺服轴/安全输入/通讯、主要外购件, 可交给 xlsx 技能整理成成本表. |
+| 终端报告 | 整机外形、组件关键参数 (取放机构含 X/Z 单程和取放循环时间估算, 可填进节拍表)、锚点坐标、布局检查结果、IO/轴数/主要外购件估算和控制器初选、图号对照, 以及每个运动组件的建议校核命令 (`mech_calc.py ...`, 把 `<>` 换成实际值后运行). |
+| 预览中的 "测距" | 依次点两个表面点, 显示距离和 ΔX/ΔY/ΔZ (机器坐标), 用于评审时量间隙、行程和操作距离; Esc 退出. |
 
 在 SolidWorks 中使用: 文件 → 打开 → 选 `.step` → 打开后为装配体 (各组件为独立零件). 可直接测量行程和间距, 在装配体中新建零件参照布局建模, 或把概念零件替换成正式设计. Creo / NX / 中望 / CAXA 均可按 STEP 装配体打开. STEP 里的零件是无特征历史的实体, 圆柱为 24 棱柱 (`--segments` 可调).
 
@@ -32,6 +34,8 @@ Samples: `assets/layout_example_magnet_ring.json` (6 工位转盘全检机), `as
 ```json
 {
   "title": "磁环表磁全检机 3D 概念布局",
+  "uph": 1800,
+  "product": {"shape": "ring", "od": 12, "id": 6, "h": 3},
   "components": [
     {"id": "frame", "type": "frame", "size": [1000, 800, 850]},
     {"id": "tt", "type": "turntable", "at": [0, 60], "dia": 400, "stations": 6, "fixture_radius": 160,
@@ -40,6 +44,8 @@ Samples: `assets/layout_example_magnet_ring.json` (6 工位转盘全检机), `as
   ]
 }
 ```
+
+顶层字段: `title`; `components`; 可选 `uph` (目标产能 pcs/h, 用于补料/倒料间隔检查)、`product` (产品, 用于计算料盒能装多少)、`refill_min` (可接受的最短补料/倒料间隔, 默认 30 min).
 
 通用字段:
 
@@ -88,7 +94,7 @@ Samples: `assets/layout_example_magnet_ring.json` (6 工位转盘全检机), `as
 |---|---|---|---|
 | `turntable` 转盘 | `dia` (400), `thk` (15), `height` 盘面高 (150), `stations` (6), `fixture_radius` (0.4×dia), `fixture` {d, h} ({40, 20}), `drive` dd / indexer / servo, `start_angle` S1 角度 (−90 = 正前方), `direction` ccw / cw, `product`, `center_plate` {d, z} | S1…Sn (产品顶面中心, 无产品时为治具顶面), center, plate | 中心固定盘用于安装伸向工位的推料/探头 (配合 `support: none`) |
 | `linear_module` 直线模组 | `stroke` (300), `width` (80), `height` (60), `pos` 0~1 滑台位置 (0), `vertical`, `payload` [长, 宽, 高] 滑台负载包络 | carriage, start, end (滑台顶面) | 本体沿局部 +X; 料盘、治具放在 `id.carriage`; 给 `payload` 时检查负载在整个行程内的干涉 (装在滑台上的组件自动豁免) |
-| `pick_place` 取放机构 | `from`, `to` (工作点 = 产品顶面), `z_stroke` 抬起高度 (30), `drive` cylinder / module, `side` 横梁偏置 (90), `post_side` auto / left / right, `post_at` auto / start / end, `margin` (60), `nozzle_len` (50), `pos` 0~1, `center` (判断"外侧"的中心, 默认原点) | pick, place, up | 自动生成立柱、横梁、滑块、Z 轴、吸嘴和运动包络; 报告 X 行程和所需 Z 行程 |
+| `pick_place` 取放机构 | `from`, `to` (工作点 = 产品顶面), `z_stroke` 抬起高度 (30), `drive` cylinder / module, `side` 横梁偏置 (90), `post_side` auto / left / right, `post_at` auto / start / end, `margin` (60), `nozzle_len` (50), `pos` 0~1, `center` (判断"外侧"的中心, 默认原点), `x_speed` / `z_speed` 时间估算用速度 mm/s (气缸 300/200, 模组 800/400) | pick, place, up | 自动生成立柱、横梁、滑块、Z 轴、吸嘴和运动包络; 报告 X 行程、所需 Z 行程、单程和循环时间估算. 估算按取放两端都下降; 抬起位直接放料时在节拍表中减掉 |
 | `cylinder_actuator` 气缸 | `tip` 伸出到位时推块前端, `toward` 推向的点 或 `dir` 方向°, `bore` (16), `stroke` (20), `head` block / probe / none, `head_size` [长, 宽, 高] ([10, 20, 15]), `support` down / none | tip, retracted | 侧推定位、NG 剔除、挡停; 推块须高于治具顶面 |
 | `probe` 检测探头 | 同上, 默认 `head: probe`, `bore` 10, `stroke` 10 | tip, retracted | 霍尔探头、接触式测头 |
 | `camera` 相机 | `target`, `wd` 工作距离 (100), `arm` 立柱到目标 (120), `post_dir` 立柱方向° 或 `center`, `fov` (仅显示) | target, post | 含环形光源, 立柱默认在目标外侧 |
@@ -100,11 +106,11 @@ Samples: `assets/layout_example_magnet_ring.json` (6 工位转盘全检机), `as
 ### 供料与出料
 | type | 参数 | 锚点 | 说明 |
 |---|---|---|---|
-| `magazine` 料管上料 | `product` (必填), `height` 推料面高 (100), `tube_h` (250), `stroke` 推料行程 (产品外径+30), `bore` (10) | out (取料点), refill | 料管叠放 + 底部推片, 磁环类首选 |
+| `magazine` 料管上料 | `product` (必填), `height` 推料面高 (100), `tube_h` (250), `tubes` 料管数 (1), `stroke` 推料行程 (产品外径+30), `bore` (10) | out (取料点), refill | 料管叠放 + 底部推片, 磁环类首选; `tubes` > 1 时料管沿局部 +Y 排列并带换管气缸; 容量 = 料管数 × 管高 / 产品厚 |
 | `bowl_feeder` 振动盘 | `bowl_d` (300), `bowl_h` (120), `base_h` (150), `track_len` (250), `track_z`, `product` | out | 沿局部 +X 出料; 自动提示磁性件互吸风险 |
 | `conveyor` 皮带线 | `length` (600), `width` 带宽 (100), `height` 输送面高 (80) | start, mid, end | 沿局部 +X 输送, 电机在 +Y 侧末端 |
 | `chute` 滑道 | `from`, `to` (滑道底面), `width` (30), `wall_h` (15) | in, out | 倾角 < 15° 时提示 |
-| `bin` 料盒 | `size` [宽, 深, 高] ([150, 120, 100]), `color` (红) | top | OK 盒可设绿色 |
+| `bin` 料盒 | `size` [宽, 深, 高] ([150, 120, 100]), `color` (红), `share` 流入本盒的产量比例 (1; NG 盒如 0.02) | top | OK 盒可设绿色; 有 `uph` + `product` 时计算倒料间隔 (堆积系数 0.4) |
 | `tray` 料盘 | `size` [宽, 深, 高] ([300, 200, 20]) | center, corner | |
 | `product` 产品 | `product` {shape: ring (od, id, h) / disc (d, h) / box (size)} | top | 也用于转盘、料管、振动盘的 `product` 参数 |
 
@@ -124,6 +130,9 @@ Anything outside the library: build it from `box` and `cylinder` (they accept `r
 | 静态干涉 | 各零件按凸体 (圆柱按 16 棱柱) 做分离轴检测, 容差 `--tol` (0.5 mm) | 改位置/朝向/立柱方向; 设计上接触的加 `touch` |
 | 运动干涉 | 运动包络 (预览中半透明橙色, "路径/包络" 按钮开关): 取放机构 X 扫掠 + 两端下降柱; 转盘治具和产品的旋转环带; 气缸推块/探头行程; 压头/旋转头下压行程; 模组 `payload` 行程; SCARA 手臂旋转与工具路径. 推块和压头碰到产品属于正常动作, 不报 | 抬高 `z_stroke`、换 `side`、移开障碍、缩小 `reach` 或关 `sweep` 后说明软限位 |
 | 光栅距离 | 光栅平面到最近运动包络的水平距离 | 小于安全距离 S 时: 光栅外移、缩短停止时间、加护栏 |
+| 遮挡光栅 | 任何零件伸进光栅保护区 (光栅会一直被触发) | 光栅外移或移开该零件 |
+| 补料/倒料间隔 | 需要顶层 `uph`: 料管容量 ÷ UPH; 料盒 (另需 `product`) 可装数量 ÷ (UPH × share) | 小于 `refill_min`: 加长料管、增加 `tubes`、改料仓/振动盘、加大料盒 |
+| 人工操作 | 补料口、料盒、料盘在防护罩内 (操作会触发停机); 距台面前沿 > 600 mm 或离地 > 1500 mm | 改外置抽屉/门外补料口, 或在风险表中说明停机损失 |
 | 超出台面 | 组件包络超出 `frame` 台面 (机架、防护罩、光栅、触摸屏、三色灯除外) | 调整位置或加大台面 |
 | 高于防护罩 | 组件顶部高于 `enclosure` | 加高防护罩或降低结构 |
 | 组件提示 | 振动盘 + 磁性件、气缸取放 X 行程 > 300 mm、滑道倾角 < 15°、治具超出转盘、压装立柱刚性、光栅距离 | 按提示处理或在方案中说明 |
@@ -138,7 +147,9 @@ Not checked: cables and air hoses, maintenance access, linear modules without `p
 - 推出式剔除: 推块高度要高于治具顶面, 用 `head_size` [长, 宽, 产品高] 做成薄推片; 推料气缸装在中心固定盘上 (`center_plate` + `support: none`).
 - 取放机构: 立柱默认在离中心较远的一端、远离中心的一侧; 冲突时依次试 `post_side`、`post_at`、加大 `side`; 两个取放机构的 X 轴同高时注意交叉.
 - 顶置设备 (相机/压头) 的立柱默认沿 "中心 → 目标" 方向向外; 同一工位有两个设备时, 用 `post_dir` 错开.
-- 截图: 轴测视角看整体, 俯视 + 平行投影当平面布局图; 选中组件后截图可突出重点机构.
+- 报告配图: 用 `--png` 自动出轴测 + 俯视图, 正文附图号表; 需要标签的截图在 HTML 预览中按 "截图".
+- 料管/料盘类供料: 先按 `uph` 算补料间隔, 再定料管数和高度; 料管排在远离转盘的方向 (见磁环样例 `rot: 90`).
+- 光栅装在机架前沿 (`at: [0, 台面前沿 y]`), 先确认没有零件伸进保护区, 再填 `min_distance`.
 
 ## 8. 限制
 

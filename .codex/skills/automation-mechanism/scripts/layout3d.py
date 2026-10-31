@@ -134,6 +134,7 @@ class Part:
 class Builder:
     def __init__(self):
         self.parts, self.anchors, self.lines, self.params, self.notes, self.calc = [], {}, [], [], [], []
+        self.meta = {}  # 容量、人工操作点等, 供整机检查使用
         self.main = C["alu"]
 
     def add(self, part):
@@ -410,15 +411,23 @@ def b_magazine(c, P, b):
     x_blade = -od / 2 - 25
     x_body1 = x_blade - 15
     x_body0 = x_body1 - (s + 40)
+    tubes = int(num(c, "tubes", 1))
+    pitch = od + 14
     b.main = C["glass"]
-    b.box("底座", x_body0 - 10, s + od / 2 + 25, -od / 2 - 25, od / 2 + 25, 0, H, C["alu"])
-    b.tubez("料管", 0, 0, H + ph + 0.5, H + ph + 0.5 + tube_h, od / 2 + 4, od / 2 + 1, C["glass"], opacity=0.4)
+    y_end = (tubes - 1) * pitch + od / 2 + 25
+    b.box("底座", x_body0 - 10, s + od / 2 + 25, -od / 2 - 25, y_end + (60 if tubes > 1 else 0), 0, H, C["alu"])
     stack = Builder()
     product_parts(stack, prod, 0, 0, 0, "x")
     sp = stack.parts[0]
     stack_h = min(tube_h * 0.7, 40 * ph)
     dims = sp.dims[:-1] + (stack_h,) if sp.geo != "box" else sp.dims[:2] + (stack_h,)
-    b.add(Part("料柱", sp.geo, dims, (0, 0, H + ph + 1 + stack_h / 2), C["product"], tag="product"))
+    for k in range(tubes):
+        y = k * pitch
+        b.tubez("料管" if k == 0 else "备用料管", 0, y, H + ph + 0.5, H + ph + 0.5 + tube_h, od / 2 + 4, od / 2 + 1,
+                C["glass"], opacity=0.4)
+        b.add(Part("料柱", sp.geo, dims, (0, y, H + ph + 1 + stack_h / 2), C["product"], tag="product"))
+    if tubes > 1:
+        b.box("换管气缸", -od / 2 - 20, od / 2 + 20, y_end, y_end + 60, H, H + 30, C["pneu"])
     product_parts(b, prod, s, 0, H, "待取产品")
     b.box("推片", x_blade, -od / 2 - 1, -od * 0.35, od * 0.35, H + 0.3, H + ph * 0.8, C["steel"])
     b.cyl("活塞杆", (x_blade - 7.5, 0, H + sq / 2), max(2.0, bore * 0.2), 15, C["steel"], axis="x")
@@ -426,8 +435,10 @@ def b_magazine(c, P, b):
     b.box("挡块", s + od / 2 + 1, s + od / 2 + 11, -od / 2 - 5, od / 2 + 5, H, H + ph + 5, C["alu"])
     b.anchors["out"] = (s, 0, H + ph)
     b.anchors["refill"] = (0, 0, H + ph + tube_h)
-    b.params += [("产品", product_fmt(prod)), ("料管高度", f"{tube_h:g} mm"),
-                 ("料管容量", f"约 {int(tube_h / ph)} pcs"), ("推料行程", f"{s:g} mm"),
+    cap = tubes * int(tube_h / ph)
+    b.meta.update({"capacity": cap, "manual": (0, (tubes - 1) * pitch / 2, H + ph + tube_h), "tubes": tubes})
+    b.params += [("产品", product_fmt(prod)), ("料管", f"{tubes} 根 × {tube_h:g} mm"),
+                 ("料管容量", f"约 {cap} pcs"), ("推料行程", f"{s:g} mm"),
                  ("取料面高度", f"{H + ph:g} mm"), ("推料气缸", f"Φ{bore:g} × {s:g}")]
     return at_pose(c, P)
 
@@ -513,10 +524,12 @@ def b_pick_place(c, P, b):
             b.box("运动包络 (Z 下降)", x - 6, x + 6, -6, 6, zw + 1, z_up, C["product"], **sw)
     b.anchors.update({"pick": (0, 0, zf), "place": (L, 0, zt), "up": (xc, 0, z_up)})
     z_need = zs + abs(zf - zt)
+    vx = num(c, "x_speed", 800 if mod else 300)
+    vz = num(c, "z_speed", 400 if mod else 200)
     if mod:
-        tx, tz = move_time(L, 800, 5000) + 0.05, move_time(z_need, 400, 3000) + 0.05
+        tx, tz = move_time(L, vx, 5000) + 0.05, move_time(z_need, vz, 3000) + 0.05
     else:
-        tx, tz = 0.05 + L / 300, 0.05 + z_need / 200
+        tx, tz = 0.05 + L / vx, 0.05 + z_need / vz
     b.calc.append(f"mech_calc.py {'belt' if L > 600 else 'screw'} --mass <X轴移动质量kg> "
                   + ("--pulley-dia 30 " if L > 600 else "--lead 10 ") + f"--speed 800 --stroke {L:.0f}"
                   if mod else f"mech_calc.py cylinder --mass <X轴移动质量kg> --stroke {L:.0f} --speed 300")
@@ -524,7 +537,7 @@ def b_pick_place(c, P, b):
                   if mod else f"mech_calc.py cylinder --mass <Z轴移动质量kg> --mode vertical --stroke {z_need:.0f} --speed 200")
     b.params += [("X 行程", f"{L:.1f} mm"), ("Z 行程", f"≥ {z_need:.1f} mm"),
                  ("取/放高度差", f"{zt - zf:+.1f} mm"), ("驱动", "伺服模组" if mod else "气缸"),
-                 ("X/Z 单程估算", f"{tx:.2f} / {tz:.2f} s"),
+                 ("X/Z 单程估算", f"{tx:.2f} / {tz:.2f} s (按 {vx:g} / {vz:g} mm/s)"),
                  ("取放循环估算", f"{4 * tz + 2 * tx + 0.2:.2f} s (含吸/放各 0.1 s)"),
                  ("立柱位置", ("取料端" if post_at == "start" else "放料端") + ("左侧" if s > 0 else "右侧"))]
     if not mod and L > 300:
@@ -751,7 +764,13 @@ def b_bin(c, P, b):
     for sx in (-1, 1):
         b.box("侧板", sx * w / 2, sx * (w / 2 - t), -d / 2 + t, d / 2 - t, t, h, col)
     b.anchors["top"] = (0, 0, h)
+    share = float(c.get("share", 1.0))
+    if not 0 < share <= 1:
+        raise SpecError(f"组件 {c['id']}: share (流入本料盒的产量比例) 应在 0~1 之间, 如 NG 料盒 0.02")
+    b.meta.update({"volume": (w - 8) * (d - 8) * (h - 4), "share": share, "manual": (0, 0, h)})
     b.params += [("尺寸", f"{w:g} × {d:g} × {h:g} mm"), ("容积", f"{(w - 8) * (d - 8) * (h - 4) / 1e6:.2f} L")]
+    if "share" in c:
+        b.params.append(("流入比例", f"{share:.0%}"))
     return at_pose(c, P)
 
 
@@ -761,6 +780,7 @@ def b_tray(c, P, b):
     b.main = col
     b.box("料盘", -w / 2, w / 2, -d / 2, d / 2, 0, h, col)
     b.anchors.update({"center": (0, 0, h), "corner": (-w / 2, -d / 2, h)})
+    b.meta["manual"] = (0, 0, h)
     b.params.append(("料盘", f"{w:g} × {d:g} × {h:g} mm"))
     return at_pose(c, P)
 
@@ -781,7 +801,7 @@ def b_light_curtain(c, P, b):
     for sx in (-1, 1):
         b.box("光栅" + ("发射端" if sx < 0 else "接收端"), sx * span / 2, sx * (span / 2 + 30), -15, 15,
               0, z0 + hgt + 20, C["safety"])
-    b.box("保护区域", -span / 2, span / 2, -1, 1, z0, z0 + hgt, C["red"], viewer_only=True, opacity=0.07)
+    b.box("保护区域", -span / 2, span / 2, -1, 1, z0, z0 + hgt, C["red"], sweep=True, opacity=0.07, tag="field")
     b.params += [("保护宽度", f"{span:g} mm"), ("保护高度", f"{hgt:g} mm"), ("下沿高度", f"{z0:g} mm")]
     b.calc.append("mech_calc.py safety --curtain-ms <光栅响应ms> --stop-ms <实测停止ms> --resolution <分辨率mm>")
     return at_pose(c, P)
@@ -904,7 +924,7 @@ CATALOG = {
                   "start_angle, direction ccw|cw, product, center_plate {d,z}", "S1..Sn center plate"),
     "linear_module": ("stroke, width, height, pos 0~1, vertical, payload [长,宽,高]", "carriage start end"),
     "pick_place": ("from, to, z_stroke, drive cylinder|module, side, post_side auto|left|right, "
-                   "post_at auto|start|end, margin, nozzle_len, pos, center", "pick place up"),
+                   "post_at auto|start|end, margin, nozzle_len, pos, center, x_speed, z_speed (时间估算用 mm/s)", "pick place up"),
     "cylinder_actuator": ("tip, toward|dir, bore, stroke, head block|probe|none, head_size [长,宽,高], "
                           "support down|none", "tip retracted"),
     "probe": ("同 cylinder_actuator, 默认 head=probe, bore 10, stroke 10", "tip retracted"),
@@ -913,10 +933,10 @@ CATALOG = {
     "press": ("target, gap, bore, stroke, arm, post_dir|center", "target post"),
     "tool": ("target, size [x,y,z], gap, arm, post_dir|center", "target post"),
     "bowl_feeder": ("bowl_d, bowl_h, base_h, track_len, track_z, product", "out"),
-    "magazine": ("product, height, tube_h, stroke, bore", "out refill"),
+    "magazine": ("product, height, tube_h, stroke, bore, tubes 料管数", "out refill"),
     "conveyor": ("length, width, height", "start mid end"),
     "chute": ("from, to, width, wall_h", "in out"),
-    "bin": ("size [宽,深,高], color", "top"),
+    "bin": ("size [宽,深,高], color, share 流入比例 (NG 盒如 0.02)", "top"),
     "tray": ("size [宽,深,高], color", "center corner"),
     "product": ("shape ring|disc|box + od/id/h | d/h | size", "top"),
     "light_curtain": ("span, height, z0, min_distance", "-"),
@@ -937,14 +957,14 @@ ALLOWED = {
                   "drive", "product", "center_plate"} | PLACED,
     "linear_module": {"stroke", "width", "height", "pos", "vertical", "payload"} | PLACED,
     "pick_place": {"from", "to", "z_stroke", "side", "margin", "nozzle_len", "drive", "pos", "center",
-                   "post_at", "post_side"},
+                   "post_at", "post_side", "x_speed", "z_speed"},
     "cylinder_actuator": ACT, "probe": ACT,
     "camera": OVER | {"wd", "fov"}, "spindle": OVER | {"gap", "z_stroke", "chuck_d"},
     "press": OVER | {"gap", "bore", "stroke"}, "tool": OVER | {"gap", "size"},
     "bowl_feeder": {"bowl_d", "bowl_h", "base_h", "track_len", "track_z", "product"} | PLACED,
-    "magazine": {"product", "height", "tube_h", "stroke", "bore"} | PLACED,
+    "magazine": {"product", "height", "tube_h", "stroke", "bore", "tubes"} | PLACED,
     "conveyor": {"length", "width", "height"} | PLACED, "chute": {"from", "to", "width", "wall_h"},
-    "bin": {"size", "color"} | PLACED, "tray": {"size", "color"} | PLACED,
+    "bin": {"size", "color", "share"} | PLACED, "tray": {"size", "color"} | PLACED,
     "product": {"product", "shape", "od", "id", "h", "d", "size"} | PLACED,
     "light_curtain": {"span", "height", "z0", "min_distance"} | PLACED, "hmi": {"arm"} | PLACED,
     "tower_light": {"pole"} | PLACED,
@@ -973,7 +993,7 @@ class Comp:
         self.parts = [p.moved(R, t) for p in b.parts]
         self.anchors = {k: vadd(mvec(R, v), t) for k, v in b.anchors.items()}
         self.lines = [[vadd(mvec(R, v), t) for v in ln] for ln in b.lines]
-        self.params, self.notes, self.color, self.calc = b.params, b.notes, b.main, b.calc
+        self.params, self.notes, self.color, self.calc, self.meta = b.params, b.notes, b.main, b.calc, b.meta
         self.touch = set(spec.get("touch", []))
         self.riders = set()  # 装在本组件滑台上、随之运动的组件
         boxes = [p.aabb() for p in self.parts if not p.viewer_only] or [p.aabb() for p in self.parts]
@@ -1117,7 +1137,7 @@ def sat_depth(A, B):
     return best
 
 
-def check_layout(comps, tol):
+def check_layout(comps, tol, machine=None):
     issues, ok_notes = [], []
     solid = {c.id: [(p, hull(p), p.aabb()) for p in c.parts if p.sweep or not p.viewer_only] for c in comps}
     box = {}
@@ -1146,7 +1166,8 @@ def check_layout(comps, tol):
                     if d > tol and (worst is None or d > worst[0]):
                         worst = (d, pa.name, pb.name, pa.sweep or pb.sweep)
             if worst:
-                kind = "运动干涉 (动作过程中会碰)" if worst[3] else "可能干涉"
+                kind = ("遮挡光栅保护区 (光栅会一直被触发)" if "保护区域" in (worst[1], worst[2]) else
+                        "运动干涉 (动作过程中会碰)" if worst[3] else "可能干涉")
                 issues.append(("注意", f"{kind}: {a.name} ({a.id}) 的「{worst[1]}」与 {b.name} ({b.id}) 的"
                                        f"「{worst[2]}」重叠约 {worst[0]:.1f} mm"))
     frame = next((c for c in comps if c.type == "frame"), None)
@@ -1168,7 +1189,7 @@ def check_layout(comps, tol):
         Ri, span, best = rot_z(-lc.pose[3]), float(lc.spec.get("span", 800)), None
         for c in comps:
             for p in c.parts:
-                if not p.sweep:
+                if not p.sweep or p.tag == "field":
                     continue
                 loc = [mvec(Ri, vsub(v, lc.pose[:3])) for v in hull(p)[0]]
                 if max(v[0] for v in loc) < -span / 2 - 300 or min(v[0] for v in loc) > span / 2 + 300:
@@ -1187,11 +1208,146 @@ def check_layout(comps, tol):
             issues.append(("OK" if d >= need else "NG", f"{where} {'≥' if d >= need else '<'} 安全距离 {need:g} mm"))
         else:
             issues.append(("注意", f"{where}; 须 ≥ mech_calc.py safety 算出的安全距离 S (填 min_distance 可自动比对)"))
+    issues += machine_checks(comps, machine or {})
     for c in comps:
         issues += [(lv, f"{c.name} ({c.id}): {m}") for lv, m in c.notes]
-    if not any("干涉" in m for _, m in issues):
+    if not any("干涉" in m or "遮挡光栅" in m for _, m in issues):
         ok_notes.append(("OK", f"未发现组件间静态干涉和取放运动干涉 (容差 {tol:g} mm, 圆柱按 16 棱柱近似)"))
     return ok_notes + issues
+
+
+TOP_KEYS = {"title", "components", "uph", "product", "refill_min", "note"}
+
+
+def product_volume(prod):
+    s = prod.get("shape", "ring")
+    if s == "ring":
+        return math.pi / 4 * (prod["od"] ** 2 - prod["id"] ** 2) * prod["h"]
+    if s == "disc":
+        return math.pi / 4 * prod["d"] ** 2 * prod["h"]
+    sx, sy, sz = prod["size"]
+    return sx * sy * sz
+
+
+def machine_checks(comps, machine):
+    """整机级检查: 补料/倒料间隔 (需要 uph), 人工操作点是否在防护区内、是否便于操作."""
+    out = []
+    uph = machine.get("uph")
+    refill = float(machine.get("refill_min", 30))
+    prod = machine.get("product")
+    if uph:
+        for c in comps:
+            if c.type == "magazine":
+                cap = c.meta["capacity"]
+                m = cap / uph * 60
+                ok = m >= refill
+                out.append(("OK" if ok else "注意", f"{c.name} ({c.id}): 容量约 {cap} pcs, 按 {uph:g} UPH 每 {m:.1f} min 补料一次"
+                            + ("" if ok else f" (< {refill:g} min: 加长料管、增加料管数 tubes、或改料仓/振动盘)")))
+            elif c.type == "bin":
+                if not prod:
+                    out.append(("注意", f"{c.name} ({c.id}): 顶层未填 product, 无法计算倒料间隔"))
+                    continue
+                cap = int(c.meta["volume"] * 0.4 / product_volume(prod))
+                share = c.meta["share"]
+                m = cap / (uph * share) * 60
+                ok = m >= refill
+                hint = "" if ok else (" (加大料盒、改料箱/皮带出料)" if share < 1 else
+                                      " (若为 NG 料盒请填 share, 如 0.02)")
+                out.append(("OK" if ok else "注意", f"{c.name} ({c.id}): 约装 {cap} pcs (堆积系数 0.4), 流入 {share:.0%}, "
+                                                    f"每 {m:.0f} min 倒料一次" + ("" if ok else f" < {refill:g} min") + hint))
+    enc = next((c for c in comps if c.type == "enclosure"), None)
+    frame = next((c for c in comps if c.type == "frame"), None)
+    inside, far = [], []
+    for c in comps:
+        pt = c.meta.get("manual")
+        if pt is None:
+            continue
+        w = vadd(mvec(rot_z(c.pose[3]), pt), c.pose[:3])
+        if enc and enc.lo[0] < w[0] < enc.hi[0] and enc.lo[1] < w[1] < enc.hi[1] and w[2] < enc.hi[2]:
+            inside.append(c.name)
+        if frame:
+            depth = w[1] - frame.lo[1]
+            height = frame.spec.get("size", [0, 0, 850])[2] + w[2]
+            if depth > 600 or height > 1500:
+                far.append(f"{c.name} (距台面前沿 {depth:.0f} mm, 离地 {height:.0f} mm)")
+    if inside:
+        out.append(("注意", "需人工补料/倒料的位置在防护区内: " + "、".join(inside)
+                    + " — 操作时会触发光栅/门禁停机; 按补料间隔评估停机损失, 或改外置抽屉/门外补料口/不停机换料"))
+    if far:
+        out.append(("注意", "人工操作点不便操作 (建议距前沿 ≤ 600 mm、离地 ≤ 1500 mm): " + "、".join(far)))
+    return out
+
+
+def io_estimate(c):
+    """按组件类型估算 IO、轴数和主要外购件 (方案阶段, 用于控制器选型和成本)."""
+    s, t = c.spec, c.type
+    di = do = sv = sf = com = 0
+    parts = []
+    if t == "frame":
+        sf, di, parts = 2, 3, ["急停按钮 ×2", "启动/停止/复位按钮"]
+    elif t == "enclosure":
+        sf, parts = 2, ["安全门开关 ×2", "铝型材+亚克力/钢化玻璃"]
+    elif t == "turntable":
+        drive = s.get("drive", "dd")
+        if drive == "indexer":
+            do, di, parts = 1, 2, ["凸轮分割器", "刹车减速电机", "分度到位/原点传感器"]
+        else:
+            sv, di = 1, 1
+            parts = ["DD 马达+驱动器"] if drive == "dd" else ["伺服电机+精密减速机"]
+        di += int(s.get("stations", 6))
+        parts.append(f"治具有无料传感器 ×{int(s.get('stations', 6))}")
+    elif t == "linear_module":
+        sv, di, parts = 1, 3, [f"直线模组 行程 {s.get('stroke', 300):g} + 伺服", "原点/限位传感器 ×3"]
+    elif t == "pick_place":
+        if s.get("drive", "cylinder") == "module":
+            sv, di, do = 2, 4 + 1, 2
+            parts = ["X/Z 伺服模组", "吸盘+真空发生器+真空开关"]
+        else:
+            di, do = 5, 4
+            parts = ["X 无杆/滑台气缸", "Z 滑台气缸", "电磁阀 ×2", "磁性开关 ×4", "吸盘+真空发生器+真空开关"]
+    elif t in ("cylinder_actuator", "probe"):
+        do, di = 1, 2
+        parts = [f"气缸 Φ{s.get('bore', 10 if t == 'probe' else 16):g}×{s.get('stroke', 10 if t == 'probe' else 20):g}",
+                 "电磁阀", "磁性开关 ×2"]
+        if t == "probe" or s.get("head") == "probe":
+            com, parts = 1, parts + ["测头/霍尔探头 + 采集 (高斯计/采集卡)"]
+    elif t == "camera":
+        com, do, parts = 1, 1, ["工业相机+镜头", "环形光源+光源控制器"]
+    elif t == "spindle":
+        sv, do, di, parts = 1, 1, 2, ["旋转伺服+主轴", "Z 滑台气缸+电磁阀", "磁性开关 ×2"]
+    elif t == "press":
+        do, di, com, parts = 1, 2, 1, ["压装气缸/伺服压机", "压力传感器"]
+    elif t == "tool":
+        do, di, parts = 1, 1, ["执行单元 (点胶/扫码/打标)"]
+    elif t == "bowl_feeder":
+        do, di, parts = 3, 4, ["振动盘+直振+控制器", "分料气缸", "满料/缺料光纤 ×2"]
+    elif t == "magazine":
+        do, di, parts = 1, 4, ["推料气缸+电磁阀", "磁性开关 ×2", "有料/缺料传感器 ×2"]
+        if c.meta.get("tubes", 1) > 1:
+            do, di, parts = do + 1, di + 2, parts + ["换管机构 (气缸)"]
+    elif t == "conveyor":
+        do, di, parts = 1, 2, ["皮带线", "调速/减速电机", "入口/出口光电 ×2"]
+    elif t == "chute":
+        di, parts = 1, ["落料确认传感器"]
+    elif t == "bin":
+        di, parts = 1, ["料盒在位/满料传感器"]
+    elif t == "tray":
+        di, parts = 1, ["料盘在位传感器"]
+    elif t == "light_curtain":
+        sf, parts = 1, ["安全光栅 (一对)"]
+    elif t == "hmi":
+        com, parts = 1, ["触摸屏"]
+    elif t == "tower_light":
+        do, parts = 4, ["三色灯+蜂鸣器"]
+    elif t == "scara":
+        com, di, do, parts = 1, 3, 4, ["SCARA 机器人+控制器", "末端吸盘/夹爪+真空"]
+    return {"DI": di, "DO": do, "伺服轴": sv, "安全输入": sf, "通讯/模拟量": com, "外购件": parts}
+
+
+def io_summary(comps):
+    rows = [(c, io_estimate(c)) for c in comps]
+    tot = {k: sum(r[k] for _, r in rows) for k in ("DI", "DO", "伺服轴", "安全输入", "通讯/模拟量")}
+    return rows, tot
 
 
 # ---------------------------------------------------------------- meshes
@@ -1454,6 +1610,186 @@ def write_stl(path, comps, nseg=32, up="y"):
     return len(tris)
 
 
+# ---------------------------------------------------------------- static PNG views (no browser needed)
+
+NO_IMAGE = {"enclosure", "light_curtain", "hmi", "tower_light"}
+DIGITS = {"0": "111101101101111", "1": "010110010010111", "2": "111001111100111", "3": "111001111001111",
+          "4": "101101111001001", "5": "111100111001111", "6": "111100111101111", "7": "111001001001001",
+          "8": "111101111101111", "9": "111101111001111"}
+VIEW_CN = {"iso": "轴测", "top": "俯视", "front": "正视", "right": "右视"}
+
+
+def balloon_numbers(comps):
+    """图号: 除机架/防护罩/光栅外按组件顺序编号, PNG 气泡与报告图号表一致."""
+    nums, k = {}, 0
+    for c in comps:
+        if c.type not in NO_IMAGE and c.type != "frame":
+            k += 1
+            nums[c.id] = k
+    return nums
+
+
+def view_basis(view):
+    if view == "top":
+        return (0.0, 0.0, -1.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)
+    if view == "front":
+        return (0.0, 1.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0)
+    if view == "right":
+        return (-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
+    f = vmul(unit((-1.0, -1.0, 0.9)), -1.0)
+    r = unit(cross(f, (0.0, 0.0, 1.0)))
+    return f, r, cross(r, f)
+
+
+def render_png(path, comps, view="iso", width=1600, include_all=False, fit="work"):
+    """正交投影 + z 缓冲 + 平面着色 + 轮廓线 + 图号气泡, 仅用标准库写 PNG. 返回 (宽, 高)."""
+    import array
+    import zlib
+    f, r, u = view_basis(view)
+    light = unit(vadd(vadd(vmul(r, -0.4), vmul(u, 0.7)), vmul(f, -0.6)))
+    tris, tcol, tnorm, tpid, fit_pts = [], [], [], [], []
+    pid = 0
+    work = [c for c in comps if c.type not in NO_PLATE_CHECK]
+    for c in comps:
+        if c.type in NO_IMAGE and not include_all:
+            continue
+        use_fit = fit == "all" or not work or c.type not in NO_PLATE_CHECK
+        for p in c.parts:
+            if p.viewer_only:
+                continue
+            pid += 1
+            rgb = tuple(int(p.color[i:i + 2], 16) for i in (1, 3, 5))
+            V, F = mesh(p, 32)
+            if use_fit:
+                fit_pts += [(dot(v, r), dot(v, u)) for v in V]
+            for a, b, d in triangles(V, F):
+                n = cross(vsub(b, a), vsub(d, a))
+                ln = math.sqrt(dot(n, n))
+                if ln < 1e-12:
+                    continue
+                n = vmul(n, 1 / ln)
+                if dot(n, f) >= 0:
+                    continue
+                k = 0.42 + 0.58 * max(0.0, dot(n, light))
+                tris.append([(dot(v, r), dot(v, u), dot(v, f)) for v in (a, b, d)])
+                tcol.append(bytes(min(255, int(ch * k)) for ch in rgb))
+                tnorm.append(n)
+                tpid.append(pid)
+    if not tris:
+        raise SpecError("没有可渲染的零件")
+    xs = [v[0] for v in fit_pts] or [v[0] for tr in tris for v in tr]
+    ys = [v[1] for v in fit_pts] or [v[1] for tr in tris for v in tr]
+    margin = 40
+    sc = (width - 2 * margin) / max(max(xs) - min(xs), 1e-6)
+    height = int((max(ys) - min(ys)) * sc + 2 * margin)
+    if height > width * 1.3:
+        sc *= width * 1.3 / height
+        height = int((max(ys) - min(ys)) * sc + 2 * margin)
+    x0, y1 = min(xs), max(ys)
+    W, H = width, height
+    zb = array.array("d", [float("inf")]) * (W * H)
+    tb = array.array("i", [-1]) * (W * H)
+    for ti, tr in enumerate(tris):
+        P = [((v[0] - x0) * sc + margin, (y1 - v[1]) * sc + margin, v[2]) for v in tr]
+        (ax, ay, az), (bx, by, bz), (cx, cy, cz) = P
+        e1x, e1y, e1z, e2x, e2y, e2z = bx - ax, by - ay, bz - az, cx - ax, cy - ay, cz - az
+        nz = e1x * e2y - e1y * e2x
+        if abs(nz) < 1e-9:
+            continue
+        A = -(e1y * e2z - e1z * e2y) / nz
+        B = -(e1z * e2x - e1x * e2z) / nz
+        jmin = max(0, int(math.ceil(min(ay, by, cy) - 0.5)))
+        jmax = min(H - 1, int(math.floor(max(ay, by, cy) - 0.5)))
+        edges = ((ax, ay, bx, by), (bx, by, cx, cy), (cx, cy, ax, ay))
+        for j in range(jmin, jmax + 1):
+            yc = j + 0.5
+            xl, xr = float("inf"), -float("inf")
+            for sx, sy, ex, ey in edges:
+                if (sy <= yc <= ey or ey <= yc <= sy) and sy != ey:
+                    x = sx + (yc - sy) * (ex - sx) / (ey - sy)
+                    xl, xr = min(xl, x), max(xr, x)
+            i0 = max(0, int(math.ceil(xl - 0.5)))
+            i1 = min(W - 1, int(math.floor(xr - 0.5)))
+            if i1 < i0:
+                continue
+            z = az + A * (i0 + 0.5 - ax) + B * (yc - ay)
+            row = j * W
+            for k in range(row + i0, row + i1 + 1):
+                if z < zb[k]:
+                    zb[k] = z
+                    tb[k] = ti
+                z += A
+    dz = 3.0
+    edge = bytearray(W * H)
+    for j in range(H):
+        row = j * W
+        for i in range(W):
+            k = row + i
+            t0 = tb[k]
+            for k2 in ((k + 1) if i + 1 < W else -1, (k + W) if j + 1 < H else -1):
+                if k2 < 0:
+                    continue
+                t2 = tb[k2]
+                if t0 == t2:
+                    continue
+                if t0 < 0 or t2 < 0:
+                    edge[k if t0 >= 0 else k2] = 1
+                    continue
+                if tpid[t0] != tpid[t2] or dot(tnorm[t0], tnorm[t2]) < 0.85 or abs(zb[k] - zb[k2]) > dz:
+                    edge[k if zb[k] <= zb[k2] else k2] = 1
+    bg = bytes((246, 247, 249))
+    img = bytearray()
+    for j in range(H):
+        img.append(0)
+        row = j * W
+        for k in range(row, row + W):
+            t0 = tb[k]
+            if t0 < 0:
+                img += bg
+            elif edge[k]:
+                c0 = tcol[t0]
+                img += bytes((c0[0] * 2 // 7, c0[1] * 2 // 7, c0[2] * 2 // 7))
+            else:
+                img += tcol[t0]
+    nums = balloon_numbers(comps)
+    s = max(2, W // 700)
+    for c in comps:
+        if c.id not in nums:
+            continue
+        lp = ((c.lo[0] + c.hi[0]) / 2, (c.lo[1] + c.hi[1]) / 2, c.hi[2] + 15)
+        bx = int((dot(lp, r) - x0) * sc + margin)
+        by = int((y1 - dot(lp, u)) * sc + margin)
+        txt = str(nums[c.id])
+        R = int(len(txt) * 2.2 * s + 4 * s)
+        for j in range(max(0, by - R - 1), min(H, by + R + 2)):
+            for i in range(max(0, bx - R - 1), min(W, bx + R + 2)):
+                d = math.hypot(i - bx, j - by)
+                if d <= R:
+                    o = j * (3 * W + 1) + 1 + 3 * i
+                    img[o:o + 3] = b"\xff\xff\xff" if d < R - 1.6 * s / 2 else b"\xd9\x48\x0f"
+        gw = 4 * s
+        x = bx - (len(txt) * gw - s) // 2
+        for ch in txt:
+            bits = DIGITS[ch]
+            for jj in range(5):
+                for ii in range(3):
+                    if bits[jj * 3 + ii] == "1":
+                        for dy in range(s):
+                            for dx in range(s):
+                                yy, xx = by - (5 * s) // 2 + jj * s + dy, x + ii * s + dx
+                                if 0 <= yy < H and 0 <= xx < W:
+                                    o = yy * (3 * W + 1) + 1 + 3 * xx
+                                    img[o:o + 3] = b"\x1f\x29\x33"
+            x += gw
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    with open(path, "wb") as fh:
+        fh.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0))
+                 + chunk(b"IDAT", zlib.compress(bytes(img), 6)) + chunk(b"IEND", b""))
+    return W, H
+
+
 # ---------------------------------------------------------------- HTML viewer
 
 def scene_json(title, comps, issues, env):
@@ -1541,10 +1877,10 @@ button.warn{border-color:var(--accent);color:var(--accent)}
 <div id="top">
 <h1 id="ttl"></h1><span id="dims"></span>
 <button data-view="iso">轴测</button><button data-view="top">俯视</button><button data-view="front">正视</button><button data-view="right">右视</button><button id="bAll">整机</button>
-<button id="bOrtho">平行投影</button><button id="bGuard" class="on">防护罩</button><button id="bLbl" class="on">标签</button><button id="bPath" class="on">路径/包络</button><button id="bIssue">检查</button><button id="bShot">截图</button>
+<button id="bOrtho">平行投影</button><button id="bGuard" class="on">防护罩</button><button id="bLbl" class="on">标签</button><button id="bPath" class="on">路径/包络</button><button id="bMeasure">测距</button><button id="bIssue">检查</button><button id="bShot">截图</button>
 </div>
 <div id="side"></div>
-<div id="view"><div id="labels"></div><div id="hint">左键旋转 · 右键/Shift+左键平移 · 滚轮缩放 · 单击选中组件 · 双击居中</div></div>
+<div id="view"><div id="labels"></div><div id="hint">左键旋转 · 右键/Shift+左键平移 · 滚轮缩放 · 单击选中组件 · 双击居中 · 测距: 依次点两个表面点 (Esc 退出)</div></div>
 <div id="info"></div>
 __THREE__
 <script>
@@ -1746,7 +2082,38 @@ function hit(e) {
   const hs = ray.intersectObjects(pickables.filter(m => m.parent.visible), false);
   return hs.length ? hs[0].object.userData.id : null;
 }
-function pick(e) { select(hit(e)); }
+function hitPoint(e) {
+  const r = el.getBoundingClientRect();
+  ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), cam);
+  const hs = ray.intersectObjects(pickables.filter(m => m.parent.visible), false);
+  return hs.length ? hs[0].point.clone() : null;
+}
+let measuring = false, mpts = [];
+const mgrp = new THREE.Group(); scene.add(mgrp);
+const t2w = v => [v.x, -v.z, v.y];
+function clearMeasure() { mpts = []; while (mgrp.children.length) mgrp.remove(mgrp.children[0]); dirty = true; }
+function measurePick(e) {
+  const p = hitPoint(e); if (!p) return;
+  if (mpts.length === 2) clearMeasure();
+  mpts.push(p);
+  const mk = new THREE.Mesh(new THREE.SphereGeometry(Math.max(2, span / 300), 16, 12), new THREE.MeshBasicMaterial({color: 0xe03131, depthTest: false}));
+  mk.renderOrder = 10; mk.position.copy(p); mgrp.add(mk);
+  const f = v => v.map(x => x.toFixed(1)).join(', ');
+  let h = '<button class="x" title="关闭">×</button><h2>测距</h2><table>';
+  if (mpts.length === 2) {
+    const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints(mpts), new THREE.LineBasicMaterial({color: 0xe03131, depthTest: false}));
+    ln.renderOrder = 10; mgrp.add(ln);
+    const a = t2w(mpts[0]), b = t2w(mpts[1]), d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    h += '<tr><td>距离</td><td><b>' + Math.hypot(d[0], d[1], d[2]).toFixed(1) + ' mm</b></td></tr>';
+    h += '<tr><td>ΔX / ΔY / ΔZ</td><td>' + f(d) + ' mm</td></tr><tr><td>水平距离</td><td>' + Math.hypot(d[0], d[1]).toFixed(1) + ' mm</td></tr>';
+    h += '<tr><td>A 点</td><td>' + f(a) + '</td></tr><tr><td>B 点</td><td>' + f(b) + '</td></tr>';
+  } else h += '<tr><td>A 点</td><td>' + f(t2w(mpts[0])) + '</td></tr><tr><td colspan="2">再点第二个点</td></tr>';
+  info.innerHTML = h + '</table>'; info.style.display = 'block';
+  info.querySelector('.x').onclick = () => { info.style.display = 'none'; };
+  dirty = true;
+}
+function setMeasure(on) { measuring = on; $('#bMeasure').classList.toggle('on', on); if (!on) { clearMeasure(); info.style.display = 'none'; } else select(null); }
+function pick(e) { if (measuring) measurePick(e); else select(hit(e)); }
 el.addEventListener('dblclick', e => { const id = hit(e); if (id) focus(id); });
 
 // toolbar
@@ -1761,6 +2128,8 @@ const nWarn = S.issues.filter(s => s.indexOf('[OK]') !== 0).length;
 $('#bIssue').textContent = '检查' + (nWarn ? ' (' + nWarn + ')' : ' ✓');
 if (nWarn) $('#bIssue').classList.add('warn');
 $('#bIssue').onclick = showIssues;
+$('#bMeasure').onclick = () => setMeasure(!measuring);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && measuring) setMeasure(false); });
 $('#bShot').onclick = () => {
   renderer.render(scene, cam); updateLabels();
   const src = renderer.domElement, pr = renderer.getPixelRatio();
@@ -1807,9 +2176,26 @@ def report(title, comps, anchors, issues, lo, hi, outputs):
     out += ["", "### 锚点坐标", "", "| 锚点 | x | y | z |", "|---|---:|---:|---:|"]
     out += [f"| {k} | {v[0]:.1f} | {v[1]:.1f} | {v[2]:.1f} |" for k, v in anchors.items()]
     out += ["", "### 布局检查", ""] + [f"- [{lv}] {m}" for lv, m in issues]
+    rows, tot = io_summary(comps)
+    out += ["", "### IO / 轴数 / 主要外购件估算", "",
+            "| ID | 名称 | DI | DO | 伺服轴 | 安全输入 | 通讯/模拟量 | 主要外购件 |", "|---|---|--:|--:|--:|--:|--:|---|"]
+    for c, r in rows:
+        if any(r[k] for k in tot) or r["外购件"]:
+            out.append(f"| {c.id} | {c.name} | {r['DI']} | {r['DO']} | {r['伺服轴']} | {r['安全输入']} | "
+                       f"{r['通讯/模拟量']} | {'、'.join(r['外购件'])} |")
+    out.append(f"| **合计** | | {tot['DI']} | {tot['DO']} | {tot['伺服轴']} | {tot['安全输入']} | "
+               f"{tot['通讯/模拟量']} | |")
+    up = lambda n: int(math.ceil(n * 1.2 / 16.0)) * 16 if n else 0
+    out += ["", f"控制器初选 (含 20% 余量): DI ≥ {up(tot['DI'])} 点, DO ≥ {up(tot['DO'])} 点, "
+            f"伺服 {tot['伺服轴']} 轴 (≥ 4 轴建议总线型 PLC/运动控制器), "
+            f"安全输入 {tot['安全输入']} 路 (双通道, 安全继电器或安全 PLC), 通讯/模拟量 {tot['通讯/模拟量']} 路. "
+            "按组件类型估算, 详细设计时按电气原理图核对."]
     calc = [f"- {c.name} ({c.id}): `python3 scripts/{cmd}`" for c in comps for cmd in c.calc]
     if calc:
         out += ["", "### 建议校核 (把 <> 换成实际值后运行)", ""] + calc
+    nums = balloon_numbers(comps)
+    out += ["", "### 图号对照 (PNG 气泡数字)", "", "| 图号 | ID | 名称 |", "|--:|---|---|"]
+    out += [f"| {nums[c.id]} | {c.id} | {c.name} |" for c in comps if c.id in nums]
     if outputs:
         out += ["", "### 输出文件", ""] + [f"- {o}" for o in outputs]
     out += ["", "> 概念布局为方块级示意 (圆柱在 STEP/STL 中为多棱柱近似), 用于确认布局、行程和空间关系; "
@@ -1820,11 +2206,14 @@ def report(title, comps, anchors, issues, lo, hi, outputs):
 def write_bom(path, comps):
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
         wr = csv.writer(f)
-        wr.writerow(["id", "名称", "类型", "关键参数", "x", "y", "z", "朝向°", "包络长", "包络宽", "包络高"])
-        for c in comps:
-            wr.writerow([c.id, c.name, c.type_cn, "; ".join(f"{k} {v}" for k, v in c.params),
+        wr.writerow(["图号", "id", "名称", "类型", "关键参数", "x", "y", "z", "朝向°", "包络长", "包络宽", "包络高",
+                     "DI", "DO", "伺服轴", "安全输入", "通讯/模拟量", "主要外购件"])
+        nums = balloon_numbers(comps)
+        for c, r in io_summary(comps)[0]:
+            wr.writerow([nums.get(c.id, ""), c.id, c.name, c.type_cn, "; ".join(f"{k} {v}" for k, v in c.params),
                          round(c.pose[0], 1), round(c.pose[1], 1), round(c.pose[2], 1), round(c.pose[3], 1),
-                         round(c.hi[0] - c.lo[0]), round(c.hi[1] - c.lo[1]), round(c.hi[2] - c.lo[2])])
+                         round(c.hi[0] - c.lo[0]), round(c.hi[1] - c.lo[1]), round(c.hi[2] - c.lo[2]),
+                         r["DI"], r["DO"], r["伺服轴"], r["安全输入"], r["通讯/模拟量"], "、".join(r["外购件"])])
 
 
 def main(argv=None):
@@ -1841,7 +2230,13 @@ def main(argv=None):
     ap.add_argument("--stl", help="输出 STL")
     ap.add_argument("--up", choices=["y", "z"], default="y",
                     help="STEP/STL 向上轴: y = SolidWorks/Creo/Inventor 习惯 (默认), z = NX/中望 3D 习惯")
-    ap.add_argument("--bom", help="输出组件清单 CSV")
+    ap.add_argument("--bom", help="输出组件清单 CSV (含图号、IO、主要外购件)")
+    ap.add_argument("--png", help="输出静态视图 PNG 的文件名前缀, 如 out/layout → layout_iso.png (不需要浏览器)")
+    ap.add_argument("--views", default="iso,top", help="PNG 视图: iso,top,front,right (默认 iso,top)")
+    ap.add_argument("--png-width", type=int, default=1600, help="PNG 宽度 px (默认 1600)")
+    ap.add_argument("--png-all", action="store_true", help="PNG 中也画防护罩、光栅、触摸屏和三色灯")
+    ap.add_argument("--png-fit", choices=["work", "all"], default="work",
+                    help="PNG 取景: work = 台面上的工作区域 (默认), all = 整机")
     ap.add_argument("--cdn", action="store_true", help="HTML 从 CDN 加载 three.js (文件小, 需联网)")
     ap.add_argument("--segments", type=int, default=24, help="STEP 中圆柱的棱数 (默认 24)")
     ap.add_argument("--tol", type=float, default=0.5, help="干涉检查容差 mm (默认 0.5)")
@@ -1864,6 +2259,11 @@ def main(argv=None):
             raise SpecError("JSON 顶层应为对象: {\"title\": ..., \"components\": [...]}")
         title = str(spec.get("title", os.path.splitext(os.path.basename(a.layout))[0]))
         comps, anchors = build_layout(spec)
+        machine = {k: spec[k] for k in ("uph", "product", "refill_min") if k in spec}
+        if "uph" in machine and (not isinstance(machine["uph"], (int, float)) or machine["uph"] <= 0):
+            raise SpecError("顶层 uph 应为正数 (目标产能 pcs/h)")
+        if "product" in machine:
+            product_parts(Builder(), machine["product"], 0, 0, 0, "x")
     except json.JSONDecodeError as e:
         sys.exit(f"错误: JSON 格式错误 (第 {e.lineno} 行第 {e.colno} 列): {e.msg}")
     except SpecError as e:
@@ -1871,7 +2271,10 @@ def main(argv=None):
     if a.segments < 8:
         sys.exit("错误: --segments 须 ≥ 8")
 
-    issues = check_layout(comps, a.tol)
+    issues = check_layout(comps, a.tol, machine)
+    bad_top = sorted(k for k in spec if k not in TOP_KEYS)
+    if bad_top:
+        issues.insert(0, ("注意", f"顶层未知字段 {', '.join(bad_top)} 已忽略 (可用: {', '.join(sorted(TOP_KEYS))})"))
     lo, hi = envelope(comps)
     env = {"L": round(hi[0] - lo[0]), "W": round(hi[1] - lo[1]), "H": round(hi[2] - lo[2]),
            "zmin": round(lo[2], 1), "center": [round((lo[i] + hi[i]) / 2, 1) for i in range(3)]}
@@ -1885,6 +2288,15 @@ def main(argv=None):
                        f"{'Y' if a.up == 'y' else 'Z'} 向上, {n} 个实体记录)")
     if a.stl:
         outputs.append(f"{a.stl} ({write_stl(a.stl, comps, up=a.up)} 个三角面)")
+    if a.png:
+        views = [v.strip() for v in a.views.split(",") if v.strip()]
+        bad = [v for v in views if v not in VIEW_CN]
+        if bad:
+            sys.exit(f"错误: 未知视图 {bad} (可用 iso, top, front, right)")
+        for v in views:
+            path = f"{a.png}_{v}.png"
+            w, h = render_png(path, comps, v, max(400, a.png_width), a.png_all, a.png_fit)
+            outputs.append(f"{path} ({VIEW_CN[v]}, {w}×{h}, 气泡数字 = 报告中的图号)")
     if a.bom:
         write_bom(a.bom, comps)
         outputs.append(f"{a.bom} (组件清单)")

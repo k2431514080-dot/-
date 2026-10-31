@@ -96,7 +96,7 @@ def test_mech_calc():
 def test_cycle_and_score():
     acts, order = cycle_time.load(os.path.join(ASSETS, "cycle_example_magnet_ring.csv"))
     r = cycle_time.analyze(acts, order, "sync")
-    check("节拍样例 CT 1.60 s, 瓶颈上料手", near(r["ct"], 1.6, 1e-9) and r["critical"] == [f"L{i}" for i in range(1, 9)])
+    check("节拍样例 CT 1.40 s, 瓶颈表磁检测", near(r["ct"], 1.4, 1e-9) and r["critical"] == ["T1", "M1", "M2", "M3"])
     check("拒绝: --oee 85", rejected(lambda: cycle_time.main([os.path.join(ASSETS, "cycle_example_magnet_ring.csv"),
                                                                "--oee", "85"])))
     out = subprocess.run([sys.executable, os.path.join(HERE, "scheme_score.py"),
@@ -119,8 +119,9 @@ def test_layout():
     for name in ("layout_example_magnet_ring.json", "layout_example_wheel_test.json"):
         spec = json.load(open(os.path.join(ASSETS, name), encoding="utf-8"))
         comps, _ = layout3d.build_layout(spec)
-        issues = layout3d.check_layout(comps, 0.5)
-        clash = [m for _, m in issues if "干涉" in m and "未发现" not in m]
+        machine = {k: spec[k] for k in ("uph", "product", "refill_min") if k in spec}
+        issues = layout3d.check_layout(comps, 0.5, machine)
+        clash = [m for _, m in issues if ("干涉" in m or "遮挡光栅" in m) and "未发现" not in m]
         check(f"{name}: 无干涉", not clash, "; ".join(clash))
         check(f"{name}: 无参数警告", not any("未知参数" in m or "touch 中" in m for _, m in issues))
         solids = sum(1 for c in comps for p in c.parts if not p.viewer_only)
@@ -141,11 +142,32 @@ def test_layout():
         html = os.path.join(tmp, name + ".html")
         layout3d.write_html(html, spec["title"], comps, issues, {"L": 1, "W": 1, "H": 1, "zmin": 0, "center": [0, 0, 0]})
         check(f"{name}: HTML 生成且内嵌 three.js", os.path.getsize(html) > 500000)
+        png = os.path.join(tmp, name + ".png")
+        w, h = layout3d.render_png(png, comps, "iso", 400)
+        head = open(png, "rb").read(24)
+        check(f"{name}: PNG 静态图 ({w}×{h})", head[:8] == b"\x89PNG\r\n\x1a\n" and
+              int.from_bytes(head[16:20], "big") == w == 400 and int.from_bytes(head[20:24], "big") == h > 100)
+        if "uph" in spec:
+            check(f"{name}: 补料/倒料间隔全部满足", not any(lv != "OK" and ("补料一次" in m or "倒料一次" in m)
+                                                     for lv, m in issues))
 
     def issues_of(spec):
         comps, _ = layout3d.build_layout(spec)
         return layout3d.check_layout(comps, 0.5)
 
+    spec = json.load(open(os.path.join(ASSETS, "layout_example_magnet_ring.json"), encoding="utf-8"))
+    comps, _ = layout3d.build_layout(spec)
+    tot = layout3d.io_summary(comps)[1]
+    check("IO 估算 磁环样例 38 DI / 19 DO / 2 伺服 / 5 安全", (tot["DI"], tot["DO"], tot["伺服轴"], tot["安全输入"]) == (38, 19, 2, 5),
+          str(tot))
+    one = {"uph": 1800, "components": [{"id": "m", "type": "magazine", "tube_h": 300,
+                                         "product": {"shape": "ring", "od": 12, "id": 6, "h": 3}}]}
+    comps, _ = layout3d.build_layout(one)
+    check("报出: 单料管 1800 UPH 补料间隔 3.3 min", any(lv == "注意" and "3.3 min" in m
+                                                         for lv, m in layout3d.check_layout(comps, 0.5, {"uph": 1800})))
+    lc = {"components": [{"id": "c", "type": "light_curtain", "at": [0, -300], "span": 600},
+                         {"id": "b", "type": "box", "at": [0, -300], "size": [50, 50, 200]}]}
+    check("报出: 零件遮挡光栅保护区", any("遮挡光栅" in m for _, m in issues_of(lc)))
     typo = {"components": [{"id": "c", "type": "cylinder_actuator", "tip": [0, 0, 50], "dir": 0, "strok": 80}]}
     check("报出: 参数拼写错误", any("未知参数 strok" in m for _, m in issues_of(typo)))
     spec = json.load(open(os.path.join(ASSETS, "layout_example_magnet_ring.json"), encoding="utf-8"))

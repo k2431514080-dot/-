@@ -69,7 +69,7 @@ Rules: 价格来源必须标注 (报价/估算/历史价); 长周期件在备注
 
 ## F. 布局草图写法
 
-Preferred: the 3D concept layout from `scripts/layout3d.py` (see `layout-3d.md`): 轴测截图 for the overview, 俯视 + 平行投影 截图 as the layout drawing, plus the HTML and STEP files. When no files can be produced, give a top view in ASCII or Mermaid, with material flow and operator side:
+Preferred: the 3D concept layout from `scripts/layout3d.py` (see `layout-3d.md`): `--png` writes 轴测 and 俯视 images without a browser (insert them into Word/PPT with the docx/pptx skills and put the 图号 table next to them), plus the HTML and STEP files. When no files can be produced, give a top view in ASCII or Mermaid, with material flow and operator side:
 
 ```text
                  [S2 定位]

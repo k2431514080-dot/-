@@ -1,6 +1,6 @@
 ---
 name: automation-mechanism
-description: Use this skill when Codex needs to design, select, size, review, compare, or document mechanical mechanisms for non-standard automation equipment (非标自动化设备机构方案). Covers process/action decomposition; mechanism selection for feeding, separation, pick-and-place, conveying, indexing, locating/clamping, pressing, measuring and sorting; sizing of cylinders, vacuum cups, ball-screw and belt modules, servo motors, rotary tables, cam indexers, linear guides and light-curtain safety distance; cycle time/UPH and bottleneck analysis; quick 3D concept layouts (interactive HTML viewer + STEP assembly for SolidWorks/Creo/NX) with clash and motion-envelope checks; risk and error-proofing review; weighted scheme comparison; BOM/cost estimates; and scheme documents for full-inspection, assembly and test machines such as magnetic ring inspection or mouse wheel module assembly equipment.
+description: Use this skill when Codex needs to design, select, size, review, compare, or document mechanical mechanisms for non-standard automation equipment (非标自动化设备机构方案; 机构设计/选型计算/气缸电机模组选型/节拍 UPH/3D 方案布局/全检机 组装机 测试机). Covers process/action decomposition; mechanism selection for feeding, separation, pick-and-place, conveying, indexing, locating/clamping, pressing, measuring and sorting; sizing of cylinders, vacuum cups, ball-screw and belt modules, servo motors, rotary tables, cam indexers, linear guides and light-curtain safety distance; cycle time/UPH and bottleneck analysis; quick 3D concept layouts (interactive HTML viewer + STEP assembly for SolidWorks/Creo/NX) with clash and motion-envelope checks; risk and error-proofing review; weighted scheme comparison; BOM/cost estimates; and scheme documents for full-inspection, assembly and test machines such as magnetic ring inspection or mouse wheel module assembly equipment.
 ---
 
 # Automation Mechanism Skill
@@ -38,6 +38,7 @@ Not for: detailed part drawings and GD&T, PLC programs, electrical schematics. F
 | `assets/scoring_example.csv` | 磁环上料方案加权评分样例. |
 | `assets/layout_example_magnet_ring.json` | 6 工位转盘磁环表磁全检机 3D 布局样例 (与上面的节拍样例对应). |
 | `assets/layout_example_wheel_test.json` | 直线式滚轮模组手感测试工作站 3D 布局样例 (穿梭模组、模组取放、皮带线). |
+| `assets/example_scheme_magnet_ring.md` | 完整方案输出样例 (结论、假设、机构表、计算、节拍、风险、IO、待确认), 数值全部来自脚本. Read once before writing a full scheme to match its depth and wording. |
 | `assets/vendor/three.min.js` | three.js r149 (MIT, `three.LICENSE`), 内嵌到 3D 预览中以便离线打开. |
 
 Scripts need Python 3.8+ and no third-party packages (on Windows call `python` or `py` instead of `python3`). Paths below are relative to this skill folder; from the repository root use `.codex/skills/automation-mechanism/scripts/...`. Every script supports `-h` and `--out <file>` (UTF-8); the calculation scripts also support `--json`. Input CSVs may be UTF-8 or GBK (Excel default on Chinese Windows).
@@ -79,13 +80,13 @@ python3 scripts/mech_calc.py conveyor --load 20 --speed 15 --pulley-dia 50
 Put the result tables in the scheme. Resolve every `[NG]`, and either resolve or carry forward every `[注意]`. Results are preliminary: say so, and name what must be confirmed with the vendor catalog (额定推力/扭矩、允许动能、允许惯量比、T-N 曲线、许用张力). Once a brand and model are chosen, re-run with `--motor-rated-torque/--motor-inertia`.
 
 ### 6. Build the 3D concept layout (3D 概念布局)
-Read `references/layout-3d.md`, copy the closer sample from `assets/`, and describe the machine as standard components connected by anchors (取放 `from/to` → 供料出口和工位, 探头/相机 `target` → 工位). Use the sizes from Step 5 so the 3D matches the calculations, then:
+Read `references/layout-3d.md`, copy the closer sample from `assets/`, and describe the machine as standard components connected by anchors (取放 `from/to` → 供料出口和工位, 探头/相机 `target` → 工位). Use the sizes from Step 5 so the 3D matches the calculations, and put the target `uph` and `product` at the top level so refill/emptying intervals are checked. Then:
 
 ```bash
-python3 scripts/layout3d.py layout.json --html layout.html --step layout.step --bom layout_bom.csv
+python3 scripts/layout3d.py layout.json --html layout.html --step layout.step --png layout --bom layout_bom.csv
 ```
 
-Fix every `未知参数` warning first, then every clash (static or motion envelope) by moving components or changing `side`/`post_side`/`post_at`/`post_dir`/`arm`; add `touch` only for intended contact. Re-run until the check is clean. Then run the printed `建议校核` commands (fill in masses/forces), feed the reported strokes and time estimates back into Steps 5 and 7, and compare the light-curtain distance with `mech_calc.py safety`. Deliver the HTML (offline viewer, screenshots for PPT) and the STEP assembly (opens in SolidWorks/Creo/NX as one part per component).
+Fix every `未知参数` warning first, then every clash (static or motion envelope) by moving components or changing `side`/`post_side`/`post_at`/`post_dir`/`arm`; add `touch` only for intended contact. Re-run until the check is clean. Then run the printed `建议校核` commands (fill in masses/forces), feed the reported strokes and time estimates back into Steps 5 and 7, and compare the light-curtain distance with `mech_calc.py safety`. Deliver the PNG views (for Word/PPT, with the 图号 table), the HTML (offline viewer with measuring and screenshots) and the STEP assembly (opens in SolidWorks/Creo/NX as one part per component). Clashes must be fixed; machine-level `[注意]` items (光栅距离, 补料间隔, 人工操作) are either fixed or carried into the 风险与对策 table with a decision.
 
 ### 7. Prove the cycle time (节拍核算)
 Write the action table as CSV (syntax in `references/cycle-time.md`, full sample in `assets/`), then:
@@ -109,7 +110,7 @@ python3 scripts/scheme_score.py scoring.csv
 Use `veto` rows for hard requirements. Justify each score with data from steps 5–8, not preference. Report the winner, the point gap, and whether the ranking is weight-sensitive.
 
 ### 10. BOM and cost (BOM 与成本)
-List key purchased parts by module (型号规格、品牌、数量、单价) plus machined parts, electrical and a 10%–15% contingency, using template §C. Mark every price as 报价 / 估算 / 历史价, and flag long-lead items.
+Start from the `layout3d.py` IO / 外购件 table (or the `--bom` CSV): it gives DI/DO/servo/safety counts for controller selection and the main purchased items per component. List key purchased parts by module (型号规格、品牌、数量、单价) plus machined parts, electrical and a 10%–15% contingency, using template §C. Mark every price as 报价 / 估算 / 历史价, and flag long-lead items.
 
 ### 11. Deliver (输出)
 Follow `references/scheme-document-template.md`. The default in chat is a Markdown scheme. When the user wants files, combine with:
@@ -125,7 +126,7 @@ When the user mainly wants a 3D scheme fast ("帮我快速出个 3D 方案"), do
 3. Step 5 only for the parts that set geometry (转盘直径, 气缸缸径/行程, 模组行程, 吸盘).
 4. Step 6: build the layout JSON, run `layout3d.py`, iterate until no clash.
 5. Step 7 if a target UPH is given.
-6. Deliver: 轴测 + 俯视 screenshots (or the HTML), STEP, component table with key parameters, assumptions, and 待确认事项. State that it is a block-level concept for layout and space checks, not a detailed design.
+6. Deliver: 轴测 + 俯视 PNG (`--png`) with the 图号 table, the HTML and STEP, component table with key parameters, assumptions, and 待确认事项. State that it is a block-level concept for layout and space checks, not a detailed design.
 
 ## Engineering rules of thumb
 
