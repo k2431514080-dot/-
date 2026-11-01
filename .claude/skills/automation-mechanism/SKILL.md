@@ -1,6 +1,6 @@
 ---
 name: automation-mechanism
-description: Use this skill when Codex needs to design, select, size, review, compare, or document mechanical mechanisms for non-standard automation equipment (非标自动化设备机构方案; 机构设计/选型计算/气缸电机模组选型/节拍 UPH/3D 方案布局/全检机 组装机 测试机). Covers process/action decomposition; mechanism selection for feeding, separation, pick-and-place, conveying, indexing, locating/clamping, pressing, measuring and sorting; sizing of cylinders, vacuum cups, ball-screw and belt modules, servo motors, rotary tables, cam indexers, linear guides and light-curtain safety distance; cycle time/UPH and bottleneck analysis; quick 3D concept layouts (interactive HTML viewer + STEP assembly for SolidWorks/Creo/NX) with clash and motion-envelope checks; risk and error-proofing review; weighted scheme comparison; BOM/cost estimates; and scheme documents for full-inspection, assembly and test machines such as magnetic ring inspection or mouse wheel module assembly equipment.
+description: Use this skill when the user needs to design, select, size, review, compare, or document mechanical mechanisms for non-standard automation equipment (非标自动化设备机构方案; 机构设计/选型计算/气缸电机模组选型/节拍 UPH/3D 方案布局/全检机 组装机 测试机). Covers process/action decomposition; mechanism selection for feeding, separation, pick-and-place, conveying, indexing, locating/clamping, pressing, measuring and sorting; sizing of cylinders, vacuum cups, ball-screw and belt modules, servo motors, rotary tables, cam indexers, linear guides and light-curtain safety distance; cycle time/UPH and bottleneck analysis; quick 3D concept layouts (interactive HTML viewer + STEP assembly for SolidWorks/Creo/NX) with clash and motion-envelope checks; risk and error-proofing review; weighted scheme comparison; BOM/cost estimates; and scheme documents for full-inspection, assembly and test machines such as magnetic ring inspection or mouse wheel module assembly equipment.
 ---
 
 # Automation Mechanism Skill
@@ -53,7 +53,7 @@ Not for: detailed part drawings and GD&T, PLC programs, electrical schematics. F
 | `assets/example_scheme_magnet_ring.md` | 完整方案输出样例 (结论、假设、机构表、计算、节拍、风险、IO、待确认), 数值全部来自脚本. Read once before writing a full scheme to match its depth and wording. |
 | `assets/vendor/three.min.js` | three.js r149 (MIT, `three.LICENSE`), 内嵌到 3D 预览中以便离线打开. |
 
-Scripts need Python 3.8+ and no third-party packages (on Windows call `python` or `py` instead of `python3`). Paths below are relative to this skill folder; from the repository root use `.codex/skills/automation-mechanism/scripts/...`. Every script supports `-h` and `--out <file>` (UTF-8); the calculation scripts also support `--json`. Input CSVs may be UTF-8 or GBK (Excel default on Chinese Windows).
+Scripts need Python 3.8+ and no third-party packages (on Windows call `python` or `py` instead of `python3`). Paths below are relative to this skill folder; from the repository root use `.claude/skills/automation-mechanism/scripts/...`. Every script supports `-h` and `--out <file>` (UTF-8); the calculation scripts also support `--json`. Input CSVs may be UTF-8 or GBK (Excel default on Chinese Windows).
 
 ## Workflow
 

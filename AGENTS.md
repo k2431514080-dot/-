@@ -1,6 +1,6 @@
-# Codex Instructions
+# Project Instructions (Claude Code / Codex)
 
-This repository contains Codex skills for Office document work and automation mechanism design. When a user asks Codex to create, read, modify, polish, analyze, format, validate, or export Office files, or to design, size, review, or document mechanisms for automation equipment, use the matching skill under `.codex/skills/`.
+This repository contains skills for Office document work (under `.codex/skills/`) and automation mechanism design (under `.claude/skills/`, loaded automatically by Claude Code). When a user asks to create, read, modify, polish, analyze, format, validate, or export Office files, or to design, size, review, or document mechanisms for automation equipment, use the matching skill.
 
 ## Skill selection
 
@@ -18,7 +18,7 @@ Use these skills by file type and task:
 - `.codex/skills/office-report/SKILL.md`  
   Use together with docx/xlsx/pptx when the task is a Chinese engineering/business report, weekly report, cost analysis report, project closing report, supplier/customer communication document, or manager-facing summary.
 
-- `.codex/skills/automation-mechanism/SKILL.md`  
+- `.claude/skills/automation-mechanism/SKILL.md`  
   Use for non-standard automation equipment mechanism schemes (非标自动化机构方案): process/action decomposition, mechanism selection, cylinder/vacuum/ball-screw/belt/servo/rotary table/cam indexer/linear guide sizing, cycle time and UPH, quick 3D concept layouts (interactive HTML viewer + STEP assembly for CAD), risk review, scheme comparison, BOM/cost, and full-inspection/assembly/test machine proposals. Combine with docx/xlsx/pptx/office-report when the scheme must be delivered as an Office file.
 
 - `.codex/skills/office-documents/SKILL.md`  
@@ -37,12 +37,12 @@ Use these skills by file type and task:
 
 ## Automation mechanism rules
 
-1. Size every load-bearing or cycle-critical component with `.codex/skills/automation-mechanism/scripts/mech_calc.py`; do not size by feel.
+1. Size every load-bearing or cycle-critical component with `.claude/skills/automation-mechanism/scripts/mech_calc.py`; do not size by feel.
 2. Prove cycle time with `scripts/cycle_time.py` and keep at least 10% margin against the target UPH.
 3. Build 3D concept layouts with `scripts/layout3d.py` and fix every reported clash before delivering the HTML viewer and STEP file.
 4. State assumptions explicitly and separate confirmed data from estimates; script results are preliminary until checked against vendor catalogs.
 5. Before delivering any mechanism scheme, run `scripts/feasibility.py` on a project file and state its verdict word for word (可行 / 有条件可行 / 评估未完成 / 不可行). Never present an infeasible or unverified scheme as feasible, and never state an estimate or supplier figure as fact.
-6. After changing any script under `.codex/skills/automation-mechanism/scripts/`, run `python3 .codex/skills/automation-mechanism/scripts/selftest.py`; all checks must pass.
+6. After changing any script under `.claude/skills/automation-mechanism/scripts/`, run `python3 .claude/skills/automation-mechanism/scripts/selftest.py`; all checks must pass.
 
 ## User style preference
 
